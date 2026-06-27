@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SW Clear</title>
+</head>
+<body style="font-family:sans-serif;padding:20px;background:#5344b5;color:white;text-align:center">
+<h2>⏳ Cache পরিষ্কার হচ্ছে...</h2>
+<div id="log" style="margin-top:20px;font-size:14px;line-height:2.5"></div>
+
+<script>
+var log = document.getElementById('log');
+function add(msg) {
+  log.innerHTML += '<p>' + msg + '</p>';
+}
+
+async function clearAll() {
+  // 1. সব Service Worker unregister করো
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (let reg of regs) {
+      await reg.unregister();
+      add('✅ Service Worker মুছে গেছে');
+    }
+    if (regs.length === 0) add('ℹ️ কোনো Service Worker ছিল না');
+  }
+
+  // 2. সব Cache মুছে দাও
+  const keys = await caches.keys();
+  for (let key of keys) {
+    await caches.delete(key);
+    add('✅ Cache মুছে গেছে: ' + key);
+  }
+  if (keys.length === 0) add('ℹ️ কোনো Cache ছিল না');
+
+  add('<br><strong>✅ সব পরিষ্কার! ৩ সেকেন্ডে HAIS খুলবে...</strong>');
+  
+  setTimeout(function() {
+    window.location.href = './index.html?v=' + Date.now();
+  }, 3000);
+}
+
+clearAll().catch(function(e) {
+  add('❌ Error: ' + e.message);
+});
+</script>
+</body>
+</html>
