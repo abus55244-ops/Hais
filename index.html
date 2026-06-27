@@ -24,9 +24,9 @@
 <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png"/>
 <link rel="manifest" href="manifest.json"/>
 <style>@media(display-mode:standalone){body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}}</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.2/babel.min.js" crossorigin></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -79,8 +79,28 @@ select{padding:8px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;font
 </style>
 </head>
 <body>
+<div id="hais-loader" style="position:fixed;inset:0;background:#5344b5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
+<div style="width:60px;height:60px;border:4px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+<p style="color:#fff;margin-top:16px;font-size:15px;font-family:sans-serif">লোড হচ্ছে...</p>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
 <div id="root"></div>
-<script type="text/babel">
+<script>
+// Hide loader when React renders
+var _origRender = ReactDOM.render;
+window.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    var loader = document.getElementById('hais-loader');
+    if (loader) loader.style.display = 'none';
+  }, 100);
+});
+</script>
+<script type="text/babel" data-presets="react">
+// Hide loader
+(function(){ 
+  var l=document.getElementById('hais-loader'); 
+  if(l) setTimeout(function(){l.style.transition='opacity 0.3s';l.style.opacity='0';setTimeout(function(){l.remove()},300);},200);
+})();
 const {useState,useMemo,useEffect}=React;
 const IDB_NAME="HAIS_DB";
 const IDB_STORE="kv";
