@@ -10201,6 +10201,8 @@ function App(){
   const [fbLoaded,setFbLoaded]=useState(false);
   // ব্যবহারকারী লোডের পরে কিছু এডিট করেছেন কিনা
   const userEditedRef=React.useRef(false);
+  // Firebase থেকে ডেটা apply হওয়া শেষ হয়েছে কিনা — এর আগে auto-save চলবে না
+  const fbApplyDoneRef=React.useRef(false);
 
   // DEFAULT_STUDENTS এর উপর customStudents override
   const STUDENTS=Object.keys(DEFAULT_STUDENTS).reduce((acc,cls)=>{
@@ -10248,6 +10250,8 @@ function App(){
           HAISDB.setSync("hais_data_v3",data);
         }
       }catch(e){console.warn("Firebase load error:",e);}
+      // Firebase apply শেষ — এখন থেকে auto-save চলতে পারবে
+      fbApplyDoneRef.current=true;
       setFbLoaded(true);
     };
     // realtime sync — অন্য device থেকে পরিবর্তন এলে update হবে
@@ -10256,6 +10260,7 @@ function App(){
       if(!snap.exists())return;
       const data=snap.val();
       if(data.savedAt&&selfWriteRef.current&&data.savedAt===selfWriteRef.current)return;
+      // remote update আসলে auto-save block করো — React batch render-এর পরেও block থাকবে
       skipNextFbPushRef.current=true;
       if(data.results!==undefined)setResults(data.results);
       if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
@@ -10268,6 +10273,8 @@ function App(){
       if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
       if(data.sscData!==undefined)setSscData(data.sscData);
       HAISDB.setSync("hais_data_v3",data);
+      // React 18-এ batch update হয়, কিন্তু নিশ্চিত করতে একটু পরে reset করো
+      setTimeout(()=>{skipNextFbPushRef.current=false;},200);
     }:null;
     loadFromFirebase();
     if(ref&&handler)ref.on("value",handler);
@@ -10278,10 +10285,18 @@ function App(){
   // পুরো ডেটা ওভাররাইট করা হয় না — তাই একজনের পুরনো/stale ডেটা অন্যজনের নতুন সেভ মুছে দিতে পারবে না
   useEffect(()=>{
     if(!dbReady||!fbLoaded)return;
+    // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
+    if(!fbApplyDoneRef.current)return;
     const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData};
     // এটা remote থেকে আসা আপডেট apply করার ফলস্বরূপ রিরেন্ডার — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
       skipNextFbPushRef.current=false;
+      prevValuesRef.current=current;
+      return;
+    }
+    // যদি সব ডেটা একদম শূন্য থাকে (app just loaded, user hasn't edited anything) তাহলে Firebase-এ push করব না
+    const hasAnyData=Object.keys(results).length>0||Object.keys(lessonPlans).length>0||Object.keys(obsData).length>0||deadlines.length>0;
+    if(!hasAnyData&&!prevValuesRef.current){
       prevValuesRef.current=current;
       return;
     }
