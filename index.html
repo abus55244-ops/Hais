@@ -44,7 +44,16 @@
     });
     window.__fbDB=firebase.database();
     window.__fbAuth=firebase.auth();
-    window.__fbReady=true;
+    window.__fbReady=false; // auth হওয়ার পর true হবে
+    // Anonymous sign-in — Firebase rules-এ authenticated user হিসেবে লিখতে পারবে
+    window.__fbAuth.signInAnonymously().then(()=>{
+      window.__fbReady=true;
+      console.info("HAIS: Firebase anonymous auth সফল ✓");
+    }).catch(e=>{
+      // anonymous auth না থাকলেও চলবে — rules open থাকলে
+      window.__fbReady=true;
+      console.warn("HAIS: Anonymous auth ব্যর্থ, open rules দিয়ে চলবে:",e.code);
+    });
   }catch(e){console.warn("Firebase init failed:",e);window.__fbReady=false;}
 })();
 </script>
@@ -160,30 +169,77 @@ const fbListen=(cb)=>{
 };
 
 /* ── IndexedDB থেকে একবারে সব পড়া ── */
+/* ── IndexedDB থেকে একবারে সব পড়া ── */
 const loadFromIDB=async()=>{
   try{
-    // প্রথমে নতুন key চেষ্টা করো
+    // ১. নতুন key চেষ্টা
     const data=await HAISDB.get("hais_data_v3");
-    if(data)return data;
-    // পুরনো v2 থেকে মাইগ্রেট করো
+    if(data&&(data.results||data.lessonPlans))return data;
+
+    // ২. পুরনো v2 থেকে মাইগ্রেট
     const old=await HAISDB.get("hais_data_v2");
-    if(old){
+    if(old&&(old.results||old.lessonPlans)){
       console.info("HAIS: পুরনো v2 ডেটা থেকে মাইগ্রেশন হচ্ছে...");
       const migrated={results:old.results||{},lessonPlans:old.lessonPlans||{},obsData:old.obsData||{},deadlines:old.deadlines||[],dlSubmissions:old.dlSubmissions||{},teacherSubjects:old.teacherSubjects||{},customStudents:old.customStudents||{},savedAt:old.savedAt||new Date().toISOString()};
       await HAISDB.set("hais_data_v3",migrated);
       return migrated;
     }
-    // localStorage থেকে এক-বার মাইগ্রেট (v6 → v7 আপগ্রেড)
+
+    // ৩. localStorage থেকে মাইগ্রেট (v6→v7)
+    const lsKeys=["hais_data_v3","hais_data_v2","hais_data_v1","hais_results","haisData","hais_backup"];
+    for(const key of lsKeys){
+      try{
+        const lsRaw=localStorage.getItem(key);
+        if(lsRaw){
+          const lsData=JSON.parse(lsRaw);
+          if(lsData&&(lsData.results||lsData.lessonPlans)){
+            console.info("HAIS: localStorage("+key+") → IndexedDB মাইগ্রেশন ✓");
+            await HAISDB.set("hais_data_v3",lsData);
+            localStorage.removeItem(key);
+            return lsData;
+          }
+        }
+      }catch(e){}
+    }
+
+    // ৪. sessionStorage থেকেও চেষ্টা
     try{
-      const lsRaw=localStorage.getItem("hais_data_v3");
-      if(lsRaw){
-        const lsData=JSON.parse(lsRaw);
-        console.info("HAIS v7: localStorage → IndexedDB মাইগ্রেশন");
-        await HAISDB.set("hais_data_v3",lsData);
-        localStorage.removeItem("hais_data_v3");
-        return lsData;
+      const ssRaw=sessionStorage.getItem("hais_data_v3")||sessionStorage.getItem("hais_data_v2");
+      if(ssRaw){
+        const ssData=JSON.parse(ssRaw);
+        if(ssData&&(ssData.results||ssData.lessonPlans)){
+          console.info("HAIS: sessionStorage থেকে ডেটা উদ্ধার ✓");
+          await HAISDB.set("hais_data_v3",ssData);
+          return ssData;
+        }
       }
     }catch(e){}
+
+    // ৫. পুরনো IDB database নাম চেষ্টা
+    const oldDBNames=["HAIS_DB_v6","HAIS_DB_v5","HAISDatabase","hais_idb"];
+    for(const dbName of oldDBNames){
+      try{
+        const oldData=await new Promise((res)=>{
+          const req=indexedDB.open(dbName);
+          req.onsuccess=e=>{
+            const db=e.target.result;
+            const stores=Array.from(db.objectStoreNames);
+            if(!stores.length){res(null);return;}
+            const tx=db.transaction(stores[0],"readonly");
+            const getAllReq=tx.objectStore(stores[0]).getAll();
+            getAllReq.onsuccess=()=>res(getAllReq.result?.[0]||null);
+            getAllReq.onerror=()=>res(null);
+          };
+          req.onerror=()=>res(null);
+        });
+        if(oldData&&(oldData.results||oldData.lessonPlans)){
+          console.info("HAIS: পুরনো IDB("+dbName+") থেকে ডেটা উদ্ধার ✓");
+          await HAISDB.set("hais_data_v3",oldData);
+          return oldData;
+        }
+      }catch(e){}
+    }
+
   }catch(e){console.error("HAIS IDB লোড সমস্যা:",e);}
   return null;
 };
@@ -10229,13 +10285,24 @@ function App(){
 
   useEffect(()=>{
     if(!dbReady)return;
-    // Firebase থেকে একবার data load করো (once) — realtime listener-এর বদলে
+    // Firebase auth ready হওয়ার জন্য অপেক্ষা করো (anonymous sign-in সময় নেয়)
+    const waitForAuth=()=>new Promise(res=>{
+      if(window.__fbReady){res();return;}
+      let tries=0;
+      const iv=setInterval(()=>{
+        tries++;
+        if(window.__fbReady||tries>30){clearInterval(iv);res();}
+      },200);
+    });
+
     const loadFromFirebase=async()=>{
-      if(!window.__fbReady){setFbLoaded(true);return;}
+      await waitForAuth();
+      if(!window.__fbReady){fbApplyDoneRef.current=true;setFbLoaded(true);return;}
       try{
         const snap=await window.__fbDB.ref(FB_PATH).once("value");
         if(snap.exists()){
           const data=snap.val();
+          // Firebase ডেটা apply করো — skipNextFbPushRef দিয়ে auto-save block
           skipNextFbPushRef.current=true;
           if(data.results!==undefined)setResults(data.results);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
@@ -10248,6 +10315,8 @@ function App(){
           if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
           if(data.sscData!==undefined)setSscData(data.sscData);
           HAISDB.setSync("hais_data_v3",data);
+          // React batch render শেষ হওয়ার পর skipNextFbPushRef reset
+          setTimeout(()=>{skipNextFbPushRef.current=false;},500);
         }
       }catch(e){console.warn("Firebase load error:",e);}
       // Firebase apply শেষ — এখন থেকে auto-save চলতে পারবে
@@ -10260,7 +10329,7 @@ function App(){
       if(!snap.exists())return;
       const data=snap.val();
       if(data.savedAt&&selfWriteRef.current&&data.savedAt===selfWriteRef.current)return;
-      // remote update আসলে auto-save block করো — React batch render-এর পরেও block থাকবে
+      // remote update — auto-save block করো, React batch render শেষে reset
       skipNextFbPushRef.current=true;
       if(data.results!==undefined)setResults(data.results);
       if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
@@ -10273,8 +10342,7 @@ function App(){
       if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
       if(data.sscData!==undefined)setSscData(data.sscData);
       HAISDB.setSync("hais_data_v3",data);
-      // React 18-এ batch update হয়, কিন্তু নিশ্চিত করতে একটু পরে reset করো
-      setTimeout(()=>{skipNextFbPushRef.current=false;},200);
+      setTimeout(()=>{skipNextFbPushRef.current=false;},500);
     }:null;
     loadFromFirebase();
     if(ref&&handler)ref.on("value",handler);
@@ -10282,20 +10350,23 @@ function App(){
   },[dbReady]);
 
   // ── Auto-save: তাৎক্ষণিক IndexedDB + শুধু পরিবর্তিত field-ই Firebase-এ পাঠানো (partial update) ──
-  // পুরো ডেটা ওভাররাইট করা হয় না — তাই একজনের পুরনো/stale ডেটা অন্যজনের নতুন সেভ মুছে দিতে পারবে না
   useEffect(()=>{
     if(!dbReady||!fbLoaded)return;
     // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
     if(!fbApplyDoneRef.current)return;
     const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData};
-    // এটা remote থেকে আসা আপডেট apply করার ফলস্বরূপ রিরেন্ডার — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
+    // remote থেকে আসা আপডেট — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
-      skipNextFbPushRef.current=false;
       prevValuesRef.current=current;
       return;
     }
-    // যদি সব ডেটা একদম শূন্য থাকে (app just loaded, user hasn't edited anything) তাহলে Firebase-এ push করব না
-    const hasAnyData=Object.keys(results).length>0||Object.keys(lessonPlans).length>0||Object.keys(obsData).length>0||deadlines.length>0;
+    // সম্পূর্ণ শূন্য হলে Firebase-এ push করব না — data loss ঠেকাতে
+    const hasAnyData=
+      Object.keys(results).length>0||
+      Object.keys(lessonPlans).length>0||
+      Object.keys(obsData).length>0||
+      deadlines.length>0||
+      Object.keys(dlSubmissions).length>0;
     if(!hasAnyData&&!prevValuesRef.current){
       prevValuesRef.current=current;
       return;
@@ -10303,14 +10374,14 @@ function App(){
     userEditedRef.current=true;
     const savedAt=new Date().toISOString();
     const payload={...current,savedAt};
-    // IndexedDB-তে তাৎক্ষণিক local save (এক ডিভাইসে রেস কন্ডিশনের ঝুঁকি নেই)
+    // IndexedDB-তে তাৎক্ষণিক local save
     HAISDB.setSync("hais_data_v3",payload);
-    // কোন কোন top-level field আসলে পরিবর্তিত হয়েছে সেটা বের করো
+    // কোন কোন top-level field পরিবর্তিত হয়েছে
     const prev=prevValuesRef.current;
     const changedKeys=!prev?Object.keys(current):Object.keys(current).filter(k=>current[k]!==prev[k]);
     prevValuesRef.current=current;
     if(changedKeys.length===0)return;
-    // Firebase-এ 1.5s debounce দিয়ে — শুধু পরিবর্তিত field + savedAt পাঠানো হবে
+    // Firebase-এ 1.5s debounce — শুধু পরিবর্তিত field পাঠানো
     const t=setTimeout(async()=>{
       const partial={savedAt};
       changedKeys.forEach(k=>{partial[k]=current[k];});
@@ -10627,11 +10698,12 @@ function App(){
   if(!fbLoaded)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
     <div style={{fontSize:44}}>🏫</div>
     <div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS লোড হচ্ছে...</div>
-    <div style={{color:"rgba(255,255,255,0.75)",fontSize:13}}>Firebase থেকে ডেটা আনা হচ্ছে</div>
+    <div style={{color:"rgba(255,255,255,0.75)",fontSize:13}}>Firebase থেকে ডেটা নিরাপদে আনা হচ্ছে</div>
+    <div style={{color:"rgba(255,255,255,0.55)",fontSize:11}}>🔐 সংযোগ যাচাই করা হচ্ছে...</div>
     <div style={{width:200,height:6,background:"rgba(255,255,255,0.2)",borderRadius:6,overflow:"hidden",marginTop:8}}>
-      <div style={{height:"100%",background:"#fff",borderRadius:6,animation:"loadbar 4s ease-in-out forwards"}}/>
+      <div style={{height:"100%",background:"#fff",borderRadius:6,animation:"loadbar 6s ease-in-out forwards"}}/>
     </div>
-    <style>{`@keyframes loadbar{0%{width:0%}70%{width:80%}100%{width:95%}}`}</style>
+    <style>{`@keyframes loadbar{0%{width:0%}50%{width:60%}80%{width:85%}100%{width:95%}}`}</style>
   </div>);
 
   return(<div style={{minHeight:"100vh",background:C.bg,fontFamily:"sans-serif",color:C.tx}}>
@@ -10685,8 +10757,8 @@ function App(){
         <div style={{position:"relative"}}>
           <button onClick={()=>setShowExportMenu(p=>!p)} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>💾 ডেটা ▾</button>
           {showExportMenu&&(<div style={{position:"absolute",right:0,top:34,background:"#fff",borderRadius:10,boxShadow:"0 4px 16px rgba(0,0,0,0.15)",padding:6,minWidth:210,zIndex:200}}>
-            <div style={{padding:"6px 12px",fontSize:10,color:saveError?C.re:C.gr,fontWeight:600}}>
-              {saveError?"⚠ Firebase সংরক্ষণ ব্যর্থ — তথ্য ডিভাইসে আছে":lastSaved?`✓ সংরক্ষিত — ${lastSaved.toLocaleTimeString("bn-BD")}`:fbLoaded?"সংরক্ষণ হচ্ছে...":"Firebase লোড হচ্ছে..."}
+            <div style={{padding:"6px 12px",fontSize:10,color:saveError?C.re:lastSaved?C.gr:C.mu,fontWeight:600}}>
+              {saveError?"⚠ Firebase সংরক্ষণ ব্যর্থ — ডিভাইসে আছে, internet চেক করুন":lastSaved?`✓ Firebase-এ সংরক্ষিত — ${lastSaved.toLocaleTimeString("bn-BD")}`:fbLoaded?"⏳ সংরক্ষণ হচ্ছে...":"🔄 Firebase সংযোগ হচ্ছে..."}
             </div>
             <div style={{height:1,background:C.bd,margin:"4px 0"}}/>
             <button onClick={exportJSON} style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>⬇ ব্যাকআপ ফাইল ডাউনলোড</button>
