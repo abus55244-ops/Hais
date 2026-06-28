@@ -5273,7 +5273,7 @@ function LoginScreen({onLogin}){
     /* admin সবসময় অনুমোদিত */
     if(emailVal===ADMIN_EMAIL)return true;
     try{
-      const snap=await window.__fbDB.ref("hais_whitelist/"+emailVal.replace(/\./g,"_").replace(/@/g,"__at__")).once("value");
+      const snap=await window.__fbDB.ref("hais_whitelist/"+emailVal.trim().toLowerCase().replace(/[.]/g,"__dot__").replace(/@/g,"__at__")).once("value");
       return snap.exists();
     }catch(e){return false;}
   };
@@ -7641,14 +7641,14 @@ function WhitelistManager(){
   const [loading,setLoading]=useState(false);
   const [msg,setMsg]=useState("");
 
-  const fbKey=(email)=>email.replace(/\./g,"_").replace(/@/g,"__at__");
+  const fbKey=(email)=>email.trim().toLowerCase().replace(/[.]/g,"__dot__").replace(/@/g,"__at__");
 
   /* Firebase থেকে whitelist লোড */
   useEffect(()=>{
     if(!window.__fbReady)return;
     window.__fbDB.ref("hais_whitelist").once("value").then(snap=>{
       if(snap.exists()){
-        setEmails(Object.keys(snap.val()).map(k=>k.replace(/__at__/g,"@").replace(/_/g,".")));
+        setEmails(Object.keys(snap.val()).map(k=>k.replace(/__at__/g,"@").replace(/__dot__/g,".")));
       }
     });
   },[]);
