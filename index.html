@@ -152,9 +152,9 @@ const fbLoad=async()=>{
 };
 /* realtime listener — অন্য কোনো ডিভাইস ডেটা পরিবর্তন করলে সাথে সাথে এই কলব্যাক চলবে */
 const fbListen=(cb)=>{
-  if(!window.__fbReady)return ()=>{};
+  if(!window.__fbReady){setTimeout(()=>cb(null),500);return ()=>{};}
   const ref=window.__fbDB.ref(FB_PATH);
-  const handler=snap=>{if(snap.exists())cb(snap.val());};
+  const handler=snap=>{cb(snap.exists()?snap.val():null);};
   ref.on("value",handler);
   return ()=>ref.off("value",handler);
 };
@@ -10229,13 +10229,13 @@ function App(){
     if(!dbReady)return;
     let first=true;
     const unsubscribe=fbListen(data=>{
+      // প্রথম callback — fbLoaded true করো (data null হলেও)
+      if(first){first=false;setFbLoaded(true);}
+      // null মানে Firebase-এ কোনো data নেই — IndexedDB cache দিয়েই চলবে
+      if(!data)return;
       // এটা যদি আমাদেরই কিছুক্ষণ আগে পাঠানো ডেটার echo হয়, তাহলে উপেক্ষা করো
-      if(data.savedAt&&selfWriteRef.current&&data.savedAt===selfWriteRef.current){
-        if(first){first=false;setFbLoaded(true);}
-        return;
-      }
+      if(data.savedAt&&selfWriteRef.current&&data.savedAt===selfWriteRef.current)return;
       skipNextFbPushRef.current=true;
-      // Firebase থেকে আসা data সরাসরি apply — undefined হলে default রাখো
       if(data.results!==undefined)setResults(data.results);
       if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
       if(data.obsData!==undefined)setObsData(data.obsData);
@@ -10246,9 +10246,7 @@ function App(){
       if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
       if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
       if(data.sscData!==undefined)setSscData(data.sscData);
-      // এই ডেটা IndexedDB-তেও cache করো যাতে পরের লোডে এটাই ভিত্তি হয়
       HAISDB.setSync("hais_data_v3",data);
-      if(first){first=false;setFbLoaded(true);}
     });
     // 4 সেকেন্ডের মধ্যে কোনো ডেটা না এলে (অফলাইন বা প্রথমবার ব্যবহারকারী) এগিয়ে যাও
     const fallback=setTimeout(()=>{if(first){first=false;setFbLoaded(true);console.warn('HAIS: Firebase timeout — IndexedDB cache দিয়ে চলছে');}},8000);
