@@ -5273,7 +5273,7 @@ function LoginScreen({onLogin}){
     /* admin সবসময় অনুমোদিত */
     if(emailVal===ADMIN_EMAIL)return true;
     try{
-      const snap=await window.__fbDB.ref("hais_whitelist/"+emailVal.trim().toLowerCase().replace(/[.]/g,"__dot__").replace(/@/g,"__at__")).once("value");
+      const snap=await window.__fbDB.ref("hais_whitelist/"+emailVal.replace(/\./g,"_").replace(/@/g,"__at__")).once("value");
       return snap.exists();
     }catch(e){return false;}
   };
@@ -7641,14 +7641,14 @@ function WhitelistManager(){
   const [loading,setLoading]=useState(false);
   const [msg,setMsg]=useState("");
 
-  const fbKey=(email)=>email.trim().toLowerCase().replace(/[.]/g,"__dot__").replace(/@/g,"__at__");
+  const fbKey=(email)=>email.replace(/\./g,"_").replace(/@/g,"__at__");
 
   /* Firebase থেকে whitelist লোড */
   useEffect(()=>{
     if(!window.__fbReady)return;
     window.__fbDB.ref("hais_whitelist").once("value").then(snap=>{
       if(snap.exists()){
-        setEmails(Object.keys(snap.val()).map(k=>k.replace(/__at__/g,"@").replace(/__dot__/g,".")));
+        setEmails(Object.keys(snap.val()).map(k=>k.replace(/__at__/g,"@").replace(/_/g,".")));
       }
     });
   },[]);
@@ -10235,22 +10235,23 @@ function App(){
         return;
       }
       skipNextFbPushRef.current=true;
-      if(data.results)setResults(data.results);
-      if(data.lessonPlans)setLessonPlans(data.lessonPlans);
-      if(data.obsData)setObsData(data.obsData);
-      if(data.deadlines)setDeadlines(data.deadlines);
-      if(data.dlSubmissions)setDlSubmissions(data.dlSubmissions);
-      if(data.teacherSubjects)setTeacherSubjects(data.teacherSubjects);
-      if(data.customStudents)setCustomStudents(data.customStudents);
-      if(data.customTeachers){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
-      if(data.studentProfiles)setStudentProfiles(data.studentProfiles);
-      if(data.sscData)setSscData(data.sscData);
+      // Firebase থেকে আসা data সরাসরি apply — undefined হলে default রাখো
+      if(data.results!==undefined)setResults(data.results);
+      if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
+      if(data.obsData!==undefined)setObsData(data.obsData);
+      if(data.deadlines!==undefined)setDeadlines(data.deadlines);
+      if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
+      if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
+      if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+      if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
+      if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+      if(data.sscData!==undefined)setSscData(data.sscData);
       // এই ডেটা IndexedDB-তেও cache করো যাতে পরের লোডে এটাই ভিত্তি হয়
       HAISDB.setSync("hais_data_v3",data);
       if(first){first=false;setFbLoaded(true);}
     });
     // 4 সেকেন্ডের মধ্যে কোনো ডেটা না এলে (অফলাইন বা প্রথমবার ব্যবহারকারী) এগিয়ে যাও
-    const fallback=setTimeout(()=>{if(first){first=false;setFbLoaded(true);}},4000);
+    const fallback=setTimeout(()=>{if(first){first=false;setFbLoaded(true);console.warn('HAIS: Firebase timeout — IndexedDB cache দিয়ে চলছে');}},8000);
     return()=>{unsubscribe();clearTimeout(fallback);};
   },[dbReady]);
 
@@ -10589,6 +10590,15 @@ function App(){
 
   if(!dbReady)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS v7.0 লোড হচ্ছে...</div><div style={{color:"rgba(255,255,255,0.7)",fontSize:12}}>IndexedDB সংযোগ স্থাপন হচ্ছে</div></div>);
   if(!currentUser)return <LoginScreen onLogin={handleLogin}/>;
+  if(!fbLoaded)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+    <div style={{fontSize:44}}>🏫</div>
+    <div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS লোড হচ্ছে...</div>
+    <div style={{color:"rgba(255,255,255,0.75)",fontSize:13}}>Firebase থেকে ডেটা আনা হচ্ছে</div>
+    <div style={{width:200,height:6,background:"rgba(255,255,255,0.2)",borderRadius:6,overflow:"hidden",marginTop:8}}>
+      <div style={{height:"100%",background:"#fff",borderRadius:6,animation:"loadbar 4s ease-in-out forwards"}}/>
+    </div>
+    <style>{`@keyframes loadbar{0%{width:0%}70%{width:80%}100%{width:95%}}`}</style>
+  </div>);
 
   return(<div style={{minHeight:"100vh",background:C.bg,fontFamily:"sans-serif",color:C.tx}}>
     {showChangePwd&&<ChangePasswordModal currentUser={currentUser} onClose={()=>setShowChangePwd(false)}/>}
