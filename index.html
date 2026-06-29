@@ -2455,6 +2455,8 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       <Stat label="গড় স্কোর" value={avg?avg+"%":"—"} color={C.am} sub={examCount?`${examCount}টি পরীক্ষা`:"ফলাফল নেই"}/>
       <Stat label="পাস রেট" value={validRes.length?Math.round(pass/validRes.length*100)+"%":"—"} color={C.gr} sub={`${pass}/${validRes.length}`}/>
     </div>
+    {/* দৈনন্দিন কার্যক্রম — শুধুমাত্র MD ABU SAYED, একদম উপরে */}
+    {currentUser===ADMIN_TEACHER&&<DailyTaskScheduler dailyTasks={dailyTasks} setDailyTasks={setDailyTasks}/>}
     {/* এই সপ্তাহের পরীক্ষার কার্ড */}
     {thisWeekExams.length>0&&(
       <div onClick={()=>setShowExamSchedule(true)} className="stat-card" style={{background:"linear-gradient(135deg,#fff8e1,#fef3c7)",border:"1px solid #e67e2240",borderRadius:12,padding:"12px 14px",marginBottom:12,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2470,8 +2472,6 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       </div>
     )}
     {showExamSchedule&&<ExamScheduleModal examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={isAdmin} onClose={()=>setShowExamSchedule(false)}/>}
-    {/* দৈনন্দিন কার্যক্রম — শুধুমাত্র MD ABU SAYED */}
-    {currentUser===ADMIN_TEACHER&&<DailyTaskScheduler dailyTasks={dailyTasks} setDailyTasks={setDailyTasks}/>}
     <Card><H3>শ্রেণিভিত্তিক শিক্ষার্থী সংখ্যা</H3><BarChart data={clsData} color={C.pu} height={80}/></Card>
     {allRes.length>0&&(<Card>
       <H3>শ্রেণিভিত্তিক পারফরমেন্স হিটম্যাপ</H3>
