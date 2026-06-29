@@ -44,17 +44,32 @@
     });
     window.__fbDB=firebase.database();
     window.__fbAuth=firebase.auth();
-    window.__fbReady=false; // auth হওয়ার পর true হবে
-    // Anonymous sign-in — Firebase rules-এ authenticated user হিসেবে লিখতে পারবে
+    window.__fbReady=false;
+    window.__fbPreloadData=null; // লগইনের আগেই fetch করা ডেটা এখানে থাকবে
+    window.__fbPreloadDone=false;
+
+    // Anonymous sign-in এবং সাথে সাথে data pre-fetch — লগইন screen দেখানোর সময়েই background-এ চলবে
     window.__fbAuth.signInAnonymously().then(()=>{
       window.__fbReady=true;
-      console.info("HAIS: Firebase anonymous auth সফল ✓");
+      console.info("HAIS: Firebase auth সফল, data pre-fetch শুরু ✓");
+      // লগইনের আগেই Firebase থেকে ডেটা নিয়ে রাখো
+      return window.__fbDB.ref("hais_data_v3").once("value");
+    }).then(snap=>{
+      if(snap&&snap.exists()){
+        window.__fbPreloadData=snap.val();
+        console.info("HAIS: Firebase data pre-loaded ✓");
+      }
+      window.__fbPreloadDone=true;
     }).catch(e=>{
-      // anonymous auth না থাকলেও চলবে — rules open থাকলে
       window.__fbReady=true;
-      console.warn("HAIS: Anonymous auth ব্যর্থ, open rules দিয়ে চলবে:",e.code);
+      window.__fbPreloadDone=true;
+      console.warn("HAIS: Pre-load ব্যর্থ:",e.code);
     });
-  }catch(e){console.warn("Firebase init failed:",e);window.__fbReady=false;}
+  }catch(e){
+    console.warn("Firebase init failed:",e);
+    window.__fbReady=false;
+    window.__fbPreloadDone=true;
+  }
 })();
 </script>
 <style>
@@ -154,6 +169,77 @@ const fbSave=async(data)=>{
 const fbUpdate=async(partial)=>{
   if(!window.__fbReady)return false;
   try{await window.__fbDB.ref(FB_PATH).update(partial);return true;}catch(e){console.error("FB update:",e);return false;}
+};
+/* ── Granular results write — race condition সম্পূর্ণ দূর করে ──
+   প্রতিটি entry আলাদা Firebase path-এ লেখা হয়, ফলে একসাথে
+   একাধিক শিক্ষক save করলেও কেউ কারো ডেটা মুছতে পারে না।
+   key = cls__subject__examType__examName__studentName (/ বাদ দিয়ে __ দিয়ে) */
+const _fbKey=(s)=>String(s||"").replace(/[.#$[\]/]/g,"_").replace(/\s+/g,"_");
+const fbSaveResultEntries=async(entries)=>{
+  if(!window.__fbReady||!entries||!entries.length)return false;
+  try{
+    const updates={};
+    entries.forEach(e=>{
+      const k=[e.cls,e.subject,e.examType,e.examName||"noname",e.name].map(_fbKey).join("__");
+      updates[`${FB_PATH}/results_v2/${k}`]=e;
+    });
+    await window.__fbDB.ref("/").update(updates);
+    return true;
+  }catch(err){console.error("FB granular save:",err);return false;}
+};
+/* একটি নির্দিষ্ট exam এর সব entry মুছে ফেলা */
+const fbDeleteResultExam=async(cls,subject,examType,examName)=>{
+  if(!window.__fbReady)return false;
+  try{
+    const prefix=[cls,subject,examType,examName||"noname"].map(_fbKey).join("__");
+    const snap=await window.__fbDB.ref(`${FB_PATH}/results_v2`).orderByKey().startAt(prefix+"__").endAt(prefix+"__\uf8ff").once("value");
+    if(!snap.exists())return true;
+    const del={};
+    snap.forEach(c=>{del[`${FB_PATH}/results_v2/${c.key}`]=null;});
+    await window.__fbDB.ref("/").update(del);
+    return true;
+  }catch(err){console.error("FB delete exam:",err);return false;}
+};
+/* একটি নির্দিষ্ট student entry আপডেট */
+const fbUpdateResultEntry=async(entry)=>{
+  if(!window.__fbReady||!entry)return false;
+  try{
+    const k=[entry.cls,entry.subject,entry.examType,entry.examName||"noname",entry.name].map(_fbKey).join("__");
+    await window.__fbDB.ref(`${FB_PATH}/results_v2/${k}`).set(entry);
+    return true;
+  }catch(err){console.error("FB update entry:",err);return false;}
+};
+/* Firebase results_v2 থেকে flat array বানানো */
+const fbResultsV2ToState=(v2obj)=>{
+  if(!v2obj)return null;
+  const byClass={};
+  Object.values(v2obj).forEach(e=>{
+    if(!e||!e.cls)return;
+    if(!byClass[e.cls])byClass[e.cls]=[];
+    byClass[e.cls].push(e);
+  });
+  return byClass;
+};
+/* পুরনো results (array-based) এবং নতুন results_v2 (granular) মার্জ করা —
+   একই cls+subject+examType+examName+name থাকলে সবচেয়ে নতুন savedAt জেতে */
+const mergeResults=(oldR,newR)=>{
+  const merged={};
+  const allCls=new Set([...Object.keys(oldR||{}),...Object.keys(newR||{})]);
+  allCls.forEach(cls=>{
+    const map={};
+    (oldR[cls]||[]).forEach(e=>{
+      const k=`${e.subject}||${e.examType}||${e.examName||""}||${e.name}`;
+      map[k]=e;
+    });
+    (newR[cls]||[]).forEach(e=>{
+      const k=`${e.subject}||${e.examType}||${e.examName||""}||${e.name}`;
+      const existing=map[k];
+      // নতুনটা বা savedAt বেশি হলে replace
+      if(!existing||!existing.savedAt||(e.savedAt&&e.savedAt>existing.savedAt))map[k]=e;
+    });
+    merged[cls]=Object.values(map);
+  });
+  return merged;
 };
 const fbLoad=async()=>{
   if(!window.__fbReady)return null;
@@ -1036,7 +1122,136 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
 }
 
 /* KPI গণনা ফাংশন — কেন্দ্রীয় */
-function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmissions={}){
+
+/* ══ EXAM SCHEDULE MODAL ══ */
+function ExamScheduleModal({examSchedule,setExamSchedule,isAdmin,onClose}){
+  const today=new Date().toISOString().slice(0,10);
+  // এই সপ্তাহ নির্ধারণ
+  const getWeekRange=()=>{
+    const d=new Date();
+    const day=d.getDay();
+    const diff=d.getDate()-day+(day===0?-6:1);
+    const mon=new Date(d.setDate(diff));
+    const sat=new Date(mon);sat.setDate(mon.getDate()+5);
+    return{start:mon.toISOString().slice(0,10),end:sat.toISOString().slice(0,10)};
+  };
+  const {start,end}=getWeekRange();
+  const [filter,setFilter]=React.useState("week"); // "week" | "all"
+  const displayed=filter==="week"
+    ?examSchedule.filter(e=>e.date>=start&&e.date<=end)
+    :examSchedule;
+  const sorted=[...displayed].sort((a,b)=>a.date.localeCompare(b.date));
+
+  const STATUS_CONFIG={
+    pending:{label:"অপেক্ষমান",color:"#f59e0b",icon:"⏳"},
+    taken:{label:"পরীক্ষা নিয়েছেন",color:"#22c55e",icon:"✅"},
+    nottaken:{label:"পরীক্ষা নেননি",color:"#ef4444",icon:"❌"},
+    excused:{label:"যৌক্তিক কারণ",color:"#6366f1",icon:"⚠️"},
+  };
+
+  const updateStatus=(id,status)=>{
+    if(!isAdmin)return;
+    setExamSchedule(prev=>prev.map(e=>e.id===id?{...e,status,updatedAt:new Date().toISOString()}:e));
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:700,overflowY:"auto",padding:"14px 10px"}}>
+      <div style={{background:"#fff",borderRadius:16,maxWidth:640,margin:"0 auto",boxShadow:"0 8px 32px rgba(83,68,181,0.2)",overflow:"hidden"}}>
+        {/* হেডার */}
+        <div style={{background:"linear-gradient(135deg,#e67e22,#f39c12)",padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:15}}>📝 পরীক্ষার সময়সূচি</div>
+            <div style={{color:"rgba(255,255,255,0.85)",fontSize:11,marginTop:2}}>Approved Lesson Plan থেকে সংগৃহীত</div>
+          </div>
+          <button onClick={onClose} style={{border:"none",background:"rgba(255,255,255,0.25)",color:"#fff",borderRadius:8,padding:"5px 11px",cursor:"pointer",fontWeight:700,fontSize:14}}>✕</button>
+        </div>
+
+        <div style={{padding:"14px 16px"}}>
+          {/* ফিল্টার */}
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {["week","all"].map(f=>(
+              <button key={f} onClick={()=>setFilter(f)}
+                style={{padding:"6px 14px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,
+                  background:filter===f?"#e67e22":"#f5f5f5",color:filter===f?"#fff":"#555"}}>
+                {f==="week"?"এই সপ্তাহ":"সব পরীক্ষা"}
+              </button>
+            ))}
+            <span style={{marginLeft:"auto",fontSize:12,color:"#888",alignSelf:"center"}}>{sorted.length}টি পরীক্ষা</span>
+          </div>
+
+          {/* সারসংক্ষেপ ব্যাজ */}
+          {(()=>{
+            const counts={taken:0,nottaken:0,excused:0,pending:0};
+            sorted.forEach(e=>{counts[e.status]=(counts[e.status]||0)+1;});
+            return(
+              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                {Object.entries(STATUS_CONFIG).map(([k,v])=>(
+                  counts[k]>0&&<span key={k} style={{background:v.color+"22",color:v.color,border:`1px solid ${v.color}55`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
+                    {v.icon} {v.label}: {counts[k]}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+
+          {sorted.length===0&&(
+            <div style={{textAlign:"center",color:"#888",padding:30,fontSize:13}}>
+              {filter==="week"?"এই সপ্তাহে কোনো পরীক্ষা নির্ধারিত নেই":"কোনো পরীক্ষার তথ্য নেই"}
+            </div>
+          )}
+
+          {/* তালিকা */}
+          {sorted.map(exam=>{
+            const sc=STATUS_CONFIG[exam.status]||STATUS_CONFIG.pending;
+            const isPast=exam.date<today;
+            return(
+              <div key={exam.id} style={{background:sc.color+"11",border:`1px solid ${sc.color}33`,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#1a1a2e"}}>{exam.dayLabel}</div>
+                    <div style={{fontSize:11,color:"#666",marginTop:2}}>
+                      👤 {exam.teacher}
+                      {exam.cls&&<span> • শ্রেণি {exam.cls}</span>}
+                      {exam.subject&&<span> • {exam.subject}</span>}
+                    </div>
+                    {exam.examNote&&<div style={{fontSize:11,color:"#e67e22",marginTop:2}}>📝 {exam.examNote}</div>}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{background:sc.color+"22",color:sc.color,border:`1px solid ${sc.color}55`,borderRadius:20,padding:"3px 8px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
+                      {sc.icon} {sc.label}
+                    </span>
+                  </div>
+                </div>
+                {/* Admin status buttons */}
+                {isAdmin&&(
+                  <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                    {[["taken","✅ পরীক্ষা নিয়েছেন","#22c55e"],["nottaken","❌ পরীক্ষা নেননি","#ef4444"],["excused","⚠️ যৌক্তিক কারণ","#6366f1"]].map(([s,label,color])=>(
+                      <button key={s} onClick={()=>updateStatus(exam.id,s)}
+                        style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${color}`,
+                          background:exam.status===s?color:"transparent",
+                          color:exam.status===s?"#fff":color,
+                          cursor:"pointer",fontSize:11,fontWeight:700}}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {!isAdmin&&sorted.length>0&&(
+            <div style={{background:"#f0eeff",borderRadius:8,padding:"8px 12px",fontSize:11,color:"#5344b5",marginTop:8}}>
+              🔒 Status পরিবর্তন শুধুমাত্র একাডেমিক ইনচার্জ করতে পারবেন
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmissions={}, examSchedule=[]){
   const tr=allRes.filter(r=>r.teacher===teacher&&!r.absent);
   // নতুন v2 ফরম্যাট থেকে approved plan গণনা
   // weekly approved plans — নতুন সিস্টেম
@@ -1054,6 +1269,16 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   // ডেডলাইন পেনাল্টি
   const {missed:dlMissed,total:dlTotal,rate:dlRate}=calcDeadlinePenalty(teacher,deadlines,dlSubmissions);
   const dlScore=dlTotal>0?dlRate:100; // ডেটা না থাকলে ১০০%
+
+  // পরীক্ষা সময়সূচি KPI — না নিলে penalty, যৌক্তিক কারণে ছাড়
+  const teacherExams=examSchedule.filter(e=>e.teacher===teacher);
+  const examTaken=teacherExams.filter(e=>e.status==="taken").length;
+  const examNotTaken=teacherExams.filter(e=>e.status==="nottaken").length;
+  const examExcused=teacherExams.filter(e=>e.status==="excused").length;
+  const examPending=teacherExams.filter(e=>e.status==="pending").length;
+  // KPI: প্রতিটি "নিয়েছেন" = +2, প্রতিটি "নেননি" = -3
+  const examBonus=examTaken*2;
+  const examPenalty=examNotTaken*3;
 
   // ছাত্রভিত্তিক গ্রুপ করা
   const studentMap={};
@@ -1169,8 +1394,11 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
     ?Math.round(finalScoreBase*0.85+classQualityScore*0.15)
     :finalScoreBase;
 
+  // পরীক্ষা সময়সূচি bonus/penalty
+  const examNetScore=Math.min(10,examBonus)-Math.min(15,examPenalty); // সর্বোচ্চ +10, সর্বনিম্ন -15
+
   // পর্যবেক্ষণ অংশগ্রহণ বোনাস/পেনাল্টি (+5/-5)
-  const finalScore=Math.max(0,Math.min(100,finalScoreWithQuality+peerObsParticipationScore));
+  const finalScore=Math.max(0,Math.min(100,finalScoreWithQuality+peerObsParticipationScore+examNetScore));
 
   const grade=finalScore>=85?"A+":finalScore>=70?"A":finalScore>=55?"B":finalScore>=40?"C":finalScore>0?"D":"—";
 
@@ -1194,10 +1422,16 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   if(hasAnyPeerObsData){
     breakdown.push({label:"পর্যবেক্ষণ অংশগ্রহণ",value:peerObsParticipationScore,weight:0,color:peerObsParticipationScore>0?C.gr:C.re,isBonus:true});
   }
+  if(teacherExams.length>0){
+    breakdown.push({label:"পরীক্ষা নেওয়া",value:examNetScore,weight:0,
+      color:examNetScore>0?C.gr:examNetScore<0?C.re:C.mu,isBonus:true,
+      sub:`নিয়েছেন:${examTaken} নেননি:${examNotTaken} ছাড়:${examExcused}`});
+  }
 
   return{score:finalScore,grade,impScore:avgImp,weakBonus:avgWeak,consScore:avgCons,lpScore,
     attScore,insScore,sylScore,fbScore,trainingScore,dlScore,dlMissed,dlTotal,hasObsData,hasDlData,
     classQualityScore,hasClassQualityData,peerObsParticipationScore,hasAnyPeerObsData,observedThisWeek,
+    examTaken,examNotTaken,examExcused,examPending,examNetScore,
     count:tr.length,lp,breakdown};
 }
 
@@ -1446,11 +1680,11 @@ function ClassHeatmap({STUDENTS,allRes}){
     </div>
   </div>);
 }
-function TeacherOverview({allRes,lessonPlans,obsData,deadlines,dlSubmissions}){
+function TeacherOverview({allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule=[]}){
   const kpiAll=useMemo(()=>
-    TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions)}))
+    TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule)}))
       .sort((a,b)=>b.score-a.score)
-  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions]);
+  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule]);
 
   const activeCount=kpiAll.filter(k=>k.score>0).length;
   const avgScore=activeCount?Math.round(kpiAll.filter(k=>k.score>0).reduce((a,b)=>a+b.score,0)/activeCount):0;
@@ -1712,9 +1946,17 @@ function GradeBreakdownModal({STUDENTS,allRes,onClose,studentProfiles,setStudent
   );
 }
 
-function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,currentUser=""}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,currentUser="",examSchedule=[],setExamSchedule=()=>{},isAdmin=false}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [dashProfile,setDashProfile]=useState(null);// {type:"teacher"|"student", name, cls}
   const [showHealthModal,setShowHealthModal]=useState(false);
+  const [showExamSchedule,setShowExamSchedule]=useState(false);
+  // এই সপ্তাহের পরীক্ষা গণনা
+  const todayStr=new Date().toISOString().slice(0,10);
+  const getThisWeekRange=()=>{const d=new Date();const day=d.getDay();const diff=d.getDate()-day+(day===0?-6:1);const mon=new Date(d.setDate(diff));const sat=new Date(mon);sat.setDate(mon.getDate()+5);return{s:mon.toISOString().slice(0,10),e:sat.toISOString().slice(0,10)};};
+  const {s:ws,e:we}=getThisWeekRange();
+  const thisWeekExams=examSchedule.filter(e=>e.date>=ws&&e.date<=we);
+  const takenCount=thisWeekExams.filter(e=>e.status==="taken").length;
+  const notTakenCount=thisWeekExams.filter(e=>e.status==="nottaken").length;
   const allRes=Object.values(results).flat();
   // গড় সবসময় % এ — fullMarks যাই হোক তুলনামূলক সঠিক থাকে
   const validRes=allRes.filter(r=>!r.absent&&r.marks!=null);
@@ -1769,7 +2011,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
   };
 
   // ── মাসের সেরা শিক্ষক: চলতি মাসের KPI ──
-  const kpiAllDash=TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
+  const kpiAllDash=TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions,examSchedule)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
   const teacherOfMonth=kpiAllDash.length>0?kpiAllDash[0]:null;
 
   // ── মাসের সেরা ছাত্র: চলতি মাসের ফলাফল ──
@@ -1934,6 +2176,21 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       <Stat label="গড় স্কোর" value={avg?avg+"%":"—"} color={C.am} sub={examCount?`${examCount}টি পরীক্ষা`:"ফলাফল নেই"}/>
       <Stat label="পাস রেট" value={validRes.length?Math.round(pass/validRes.length*100)+"%":"—"} color={C.gr} sub={`${pass}/${validRes.length}`}/>
     </div>
+    {/* এই সপ্তাহের পরীক্ষার কার্ড */}
+    {thisWeekExams.length>0&&(
+      <div onClick={()=>setShowExamSchedule(true)} className="stat-card" style={{background:"linear-gradient(135deg,#fff8e1,#fef3c7)",border:"1px solid #e67e2240",borderRadius:12,padding:"12px 14px",marginBottom:12,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:22,color:"#e67e22"}}>{thisWeekExams.length}টি</div>
+          <div style={{fontSize:12,color:"#854f0b",fontWeight:700}}>📝 এই সপ্তাহের নির্ধারিত পরীক্ষা</div>
+          <div style={{fontSize:11,color:"#888",marginTop:3,display:"flex",gap:8}}>
+            {takenCount>0&&<span style={{color:"#22c55e",fontWeight:700}}>✅ {takenCount} নিয়েছেন</span>}
+            {notTakenCount>0&&<span style={{color:"#ef4444",fontWeight:700}}>❌ {notTakenCount} নেননি</span>}
+          </div>
+        </div>
+        <div style={{fontSize:28}}>→</div>
+      </div>
+    )}
+    {showExamSchedule&&<ExamScheduleModal examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={isAdmin} onClose={()=>setShowExamSchedule(false)}/>}
     <Card><H3>শ্রেণিভিত্তিক শিক্ষার্থী সংখ্যা</H3><BarChart data={clsData} color={C.pu} height={80}/></Card>
     {allRes.length>0&&(<Card>
       <H3>শ্রেণিভিত্তিক পারফরমেন্স হিটম্যাপ</H3>
@@ -1941,7 +2198,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
     </Card>)}
     <Card>
       <H3>👩‍🏫 শিক্ষক পারফরমেন্স ওভারভিউ</H3>
-      <TeacherOverview allRes={allRes} lessonPlans={lessonPlans} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions}/>
+      <TeacherOverview allRes={allRes} lessonPlans={lessonPlans} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule}/>
     </Card>
 
     {/* 🎖️ বার্ষিক সেরা — সারা বছরের সঞ্চিত পারফরমেন্স */}
@@ -1959,7 +2216,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
 
       // বার্ষিক সেরা শিক্ষক (সব সময়ের KPI)
-      const yearTeachers=TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
+      const yearTeachers=TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
 
       if(!yearStudentScores.length&&!yearTeachers.length)return null;
       const curYearLabel=new Date().getFullYear();
@@ -2248,7 +2505,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
 
     {/* ── ড্যাশবোর্ড থেকে প্রোফাইল পপআপ ── */}
     {dashProfile&&dashProfile.type==="teacher"&&(
-      <TeacherProfile name={dashProfile.name} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setDashProfile(null)}/>
+      <TeacherProfile name={dashProfile.name} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setDashProfile(null)} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule}/>
     )}
     {dashProfile&&dashProfile.type==="student"&&(
       <StudentProfile name={dashProfile.name} cls={dashProfile.cls} results={results} onClose={()=>setDashProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser}/>
@@ -3197,7 +3454,7 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
 }
 
 /* ══ TEACHERS ══ */
-function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=false,onChangePwd=null}){
+function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=false,onChangePwd=null,deadlines=[],dlSubmissions={},examSchedule=[]}){
   const allRes=Object.values(results).flat();
   const tr=allRes.filter(r=>r.teacher===name);
   const lp=(lessonPlans._v2||[]).filter(p=>p.teacher===name&&p.status==="approved").length+(lessonPlans[name]||[]).length;
@@ -3205,7 +3462,7 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
   // % ভিত্তিক গড়
   const trP=tr.filter(r=>!r.absent);const pass=trP.filter(r=>r.marks>=(r.passMarks||33)).length;
   const avgPct=trP.length?Math.round(trP.reduce((a,b)=>a+(b.marks/(b.fullMarks||100)*100),0)/trP.length):0;
-  const kpi=calcKPI(name,allRes,lessonPlans,obsData);
+  const kpi=calcKPI(name,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule);
   const gc=kpi.grade==="A+"?C.gr:kpi.grade==="A"?C.te:kpi.grade==="B"?C.am:kpi.grade==="D"?C.co:C.mu;
 
   const obs=obsData[name]||{};
@@ -3456,12 +3713,51 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
             ))
           )}
         </div>
+
+        {/* পরীক্ষা সম্পাদনার তালিকা */}
+        {(()=>{
+          const myExams=examSchedule.filter(e=>e.teacher===name);
+          if(!myExams.length)return null;
+          const taken=myExams.filter(e=>e.status==="taken");
+          const notTaken=myExams.filter(e=>e.status==="nottaken");
+          const excused=myExams.filter(e=>e.status==="excused");
+          return(
+            <div style={{marginTop:14,background:"#fff8e1",border:"1px solid #e67e2240",borderRadius:10,padding:"10px 12px"}}>
+              <H3>📝 পরীক্ষা সম্পাদনা ({myExams.length}টি নির্ধারিত)</H3>
+              <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                <span style={{background:"#22c55e22",color:"#22c55e",border:"1px solid #22c55e55",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>✅ নিয়েছেন: {taken.length}</span>
+                <span style={{background:"#ef444422",color:"#ef4444",border:"1px solid #ef444455",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>❌ নেননি: {notTaken.length}</span>
+                {excused.length>0&&<span style={{background:"#6366f122",color:"#6366f1",border:"1px solid #6366f155",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>⚠️ ছাড়: {excused.length}</span>}
+              </div>
+              {notTaken.length>0&&(
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:11,color:"#ef4444",fontWeight:700,marginBottom:4}}>নেননি এমন পরীক্ষা:</div>
+                  {notTaken.map(e=>(
+                    <div key={e.id} style={{fontSize:11,color:"#555",padding:"4px 0",borderBottom:"1px solid #f5e8cc"}}>
+                      ❌ {e.dayLabel}{e.subject?` • ${e.subject}`:""}{e.examNote?` • ${e.examNote}`:""}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {taken.length>0&&(
+                <details>
+                  <summary style={{fontSize:11,color:"#22c55e",cursor:"pointer",fontWeight:700,marginBottom:4}}>নিয়েছেন এমন পরীক্ষা ({taken.length}টি)</summary>
+                  {taken.map(e=>(
+                    <div key={e.id} style={{fontSize:11,color:"#555",padding:"4px 0",borderBottom:"1px solid #f5e8cc"}}>
+                      ✅ {e.dayLabel}{e.subject?` • ${e.subject}`:""}
+                    </div>
+                  ))}
+                </details>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
 }
 
-function Teachers({results,lessonPlans,obsData={},teacherSubjects={},setTeacherSubjects=()=>{},isAdmin=false,customTeachers=[],setCustomTeachers=()=>{},STUDENTS}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function Teachers({results,lessonPlans,obsData={},teacherSubjects={},setTeacherSubjects=()=>{},isAdmin=false,customTeachers=[],setCustomTeachers=()=>{},STUDENTS,examSchedule=[]}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [q,setQ]=useState("");
   const [sel,setSel]=useState(null);
   const [tab,setTab]=useState("list");
@@ -3525,7 +3821,7 @@ function Teachers({results,lessonPlans,obsData={},teacherSubjects={},setTeacherS
 
   return(<div>
     <H2>👩‍🏫 শিক্ষক ব্যবস্থাপনা</H2>
-    {sel&&<TeacherProfile name={sel} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setSel(null)}/>}
+    {sel&&<TeacherProfile name={sel} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setSel(null)} examSchedule={examSchedule}/>}
 
     {/* ট্যাব */}
     <div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -3781,42 +4077,48 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,teacherSubjec
   const liveAbsent=Object.values(absent).filter(Boolean).length;
   const liveAvgPct=liveAvg?Math.round(liveAvg/fullMarks*100):null;
 
-  const save=()=>{
+  const save=async()=>{
     const nowISO=new Date().toISOString();
+    const trimName=examName.trim();
     const entries=STUDENTS[cls]
-      .filter(name=>!absent[name])// absent বাদ দাও
+      .filter(name=>!absent[name])
       .map(name=>({
         name,cls,subject:sub,examType:ex,
-        examName:examName.trim(),examDate:examDate.trim(),
+        examName:trimName,examDate:examDate.trim(),
         marks:marks[name]!==""&&marks[name]!==undefined?parseInt(marks[name])||0:0,
         fullMarks,passMarks,
         examOrder:EXAM_ORDER[ex]||1,
-        teacher,
-        absent:false,
-        savedAt:nowISO
+        teacher,absent:false,savedAt:nowISO
       }));
     // absent রেকর্ড আলাদাভাবে (KPI হিসাবে বাদ যাবে)
     const absentEntries=STUDENTS[cls]
       .filter(name=>absent[name])
       .map(name=>({
         name,cls,subject:sub,examType:ex,
-        examName:examName.trim(),examDate:examDate.trim(),
+        examName:trimName,examDate:examDate.trim(),
         marks:null,fullMarks,passMarks,
         examOrder:EXAM_ORDER[ex]||1,
-        teacher,absent:true,
-        savedAt:nowISO
+        teacher,absent:true,savedAt:nowISO
       }));
+    const allEntries=[...entries,...absentEntries];
+    // ১. React state আপডেট (local instant)
     setResults(p=>{
       const prev={...p};
       const existing=prev[cls]||[];
-      // একই শ্রেণি+বিষয়+পরীক্ষার ধরনের পুরনো এন্ট্রি বাদ দাও (replace করা হবে)
-      const filtered=existing.filter(r=>!(r.subject===sub&&r.examType===ex&&(examName.trim()?r.examName===examName.trim():true)));
-      prev[cls]=[...filtered,...entries,...absentEntries];
+      const filtered=existing.filter(r=>!(r.subject===sub&&r.examType===ex&&(trimName?r.examName===trimName:true)));
+      prev[cls]=[...filtered,...allEntries];
       return prev;
     });
+    // ২. Firebase-এ granular write — একসাথে একাধিক শিক্ষক save করলেও কেউ কারো ডেটা মুছবে না
+    setMsg("⏳ সংরক্ষণ হচ্ছে...");
+    const ok=await fbSaveResultEntries(allEntries);
     setMarks({});setAbsent({});setExamDate("");setExamName("");
-    setMsg(`✓ সংরক্ষিত! উপস্থিত: ${entries.length} | অনুপস্থিত: ${absentEntries.length}`);
-    setTimeout(()=>setMsg(""),3000);
+    if(ok){
+      setMsg(`✓ সংরক্ষিত! উপস্থিত: ${entries.length} | অনুপস্থিত: ${absentEntries.length}`);
+    }else{
+      setMsg(`⚠️ Local সংরক্ষিত, Firebase sync পরে হবে`);
+    }
+    setTimeout(()=>setMsg(""),3500);
   };
 
   return(<div>
@@ -3950,18 +4252,20 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS}){STU
   const [bulkMarks,setBulkMarks]=useState({}); // {name: markString}
 
   // একটি রেকর্ড এডিট করুন
-  const doEditMark=()=>{
+  const doEditMark=async()=>{
     if(!editRec)return;
     const m=parseInt(editMark);
     if(isNaN(m)||m<0||m>editRec.rec.fullMarks)return;
+    let updatedEntry=null;
     setResults(prev=>{
       const cls=[...(prev[editRec.cls]||[])];
-      // allRes flat index থেকে cls-level index বের করতে name+subject+examType+examName match
-      const idx=cls.findIndex((r,i)=>r.name===editRec.rec.name&&r.subject===editRec.rec.subject&&r.examType===editRec.rec.examType&&r.examName===editRec.rec.examName&&r.cls===editRec.cls);
-      if(idx>=0){cls[idx]={...cls[idx],marks:m};}
+      const idx=cls.findIndex((r)=>r.name===editRec.rec.name&&r.subject===editRec.rec.subject&&r.examType===editRec.rec.examType&&r.examName===editRec.rec.examName&&r.cls===editRec.cls);
+      if(idx>=0){cls[idx]={...cls[idx],marks:m,savedAt:new Date().toISOString()};updatedEntry=cls[idx];}
       return{...prev,[editRec.cls]:cls};
     });
     setEditRec(null);setEditMark("");
+    // Firebase granular update
+    if(updatedEntry)await fbUpdateResultEntry(updatedEntry);
     setDelMsg("✅ নম্বর সংশোধন সম্পন্ন!");
     setTimeout(()=>setDelMsg(""),3000);
   };
@@ -3975,9 +4279,11 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS}){STU
   };
 
   // ── বাল্ক সেভ ──
-  const saveBulkMarks=()=>{
+  const saveBulkMarks=async()=>{
     if(!examEditGroup)return;
     const {cls,subject,examType,examName}=examEditGroup;
+    const nowISO=new Date().toISOString();
+    let updatedEntries=[];
     setResults(prev=>{
       const clsArr=[...(prev[cls]||[])];
       Object.entries(bulkMarks).forEach(([name,val])=>{
@@ -3985,17 +4291,19 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS}){STU
         const m=parseInt(val);
         if(isNaN(m))return;
         const idx=clsArr.findIndex(r=>r.name===name&&r.subject===subject&&r.examType===examType&&(examName?r.examName===examName:!r.examName)&&r.cls===cls);
-        if(idx>=0){clsArr[idx]={...clsArr[idx],marks:m,absent:false};}
+        if(idx>=0){clsArr[idx]={...clsArr[idx],marks:m,absent:false,savedAt:nowISO};updatedEntries.push(clsArr[idx]);}
       });
       return{...prev,[cls]:clsArr};
     });
+    // Firebase granular update
+    if(updatedEntries.length)await fbSaveResultEntries(updatedEntries);
     setExamEditGroup(null);setBulkMarks({});
     setDelMsg("✅ সকল নম্বর সংরক্ষিত হয়েছে!");
     setTimeout(()=>setDelMsg(""),3000);
   };
 
   // পুরো একটি পরীক্ষা ডিলেট করুন (শুধু Admin)
-  const doDeleteExam=()=>{
+  const doDeleteExam=async()=>{
     if(!delConfirm)return;
     const {cls,subject,examType,examName}=delConfirm;
     setResults(prev=>{
@@ -4005,6 +4313,8 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS}){STU
       }
       return updated;
     });
+    // Firebase-এ granular delete
+    await fbDeleteResultExam(cls,subject,examType,examName);
     setDelConfirm(null);
     setDelMsg("🗑️ পরীক্ষা মুছে ফেলা হয়েছে।");
     setTimeout(()=>setDelMsg(""),3000);
@@ -5619,14 +5929,15 @@ function WeeklyLPForm({teacher,assignment,weekDays,weekLabel,onSubmit,onCancel,e
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:"#ede9fd"}}>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"28%"}}>তারিখ ও বার</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"46%"}}>পাঠ পরিকল্পনা</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"26%"}}>H.W</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"24%"}}>তারিখ ও বার</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"40%"}}>পাঠ পরিকল্পনা</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",fontWeight:700,border:"1px solid #e0d9f7",width:"22%"}}>H.W</th>
+                  <th style={{padding:"8px 10px",textAlign:"center",color:"#e67e22",fontWeight:700,border:"1px solid #e0d9f7",width:"14%"}}>📝 পরীক্ষা</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row,i)=>(
-                  <tr key={i} style={{background:i%2===0?"#fff":"#fafafe"}}>
+                  <tr key={i} style={{background:row.hasExam?"#fff8e1":(i%2===0?"#fff":"#fafafe")}}>
                     <td style={{padding:"8px 10px",border:"1px solid #e0d9f7",fontSize:11,color:"#444",fontWeight:600,verticalAlign:"top"}}>{row.dayLabel}</td>
                     <td style={{padding:"6px 8px",border:"1px solid #e0d9f7",verticalAlign:"top"}}>
                       <textarea value={row.lessonPlan} onChange={e=>updateRow(i,"lessonPlan",e.target.value)}
@@ -5637,6 +5948,18 @@ function WeeklyLPForm({teacher,assignment,weekDays,weekLabel,onSubmit,onCancel,e
                       <textarea value={row.hw} onChange={e=>updateRow(i,"hw",e.target.value)}
                         placeholder="গৃহকাজ..."
                         style={{width:"100%",minHeight:54,padding:"5px 7px",border:"1px solid #ddd",borderRadius:6,fontSize:11,fontFamily:"sans-serif",resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+                    </td>
+                    <td style={{padding:"6px 8px",border:"1px solid #e0d9f7",verticalAlign:"top",textAlign:"center"}}>
+                      <label style={{cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <input type="checkbox" checked={!!row.hasExam} onChange={e=>updateRow(i,"hasExam",e.target.checked)}
+                          style={{width:18,height:18,cursor:"pointer",accentColor:"#e67e22"}}/>
+                        {row.hasExam&&<span style={{fontSize:10,color:"#e67e22",fontWeight:700}}>📝 আছে</span>}
+                      </label>
+                      {row.hasExam&&(
+                        <input type="text" value={row.examNote||""} onChange={e=>updateRow(i,"examNote",e.target.value)}
+                          placeholder="পরীক্ষার ধরন..."
+                          style={{marginTop:4,width:"100%",padding:"3px 5px",border:"1px solid #e67e22",borderRadius:5,fontSize:10,outline:"none"}}/>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -5688,17 +6011,21 @@ function WeeklyLPViewModal({plan,onClose,isAdmin=false,onApprove=null}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:"#ede9fd"}}>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"28%"}}>তারিখ ও বার</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"46%"}}>পাঠ পরিকল্পনা</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"26%"}}>H.W</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"24%"}}>তারিখ ও বার</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"40%"}}>পাঠ পরিকল্পনা</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",color:"#5344b5",border:"1px solid #e0d9f7",width:"22%"}}>H.W</th>
+                  <th style={{padding:"8px 10px",textAlign:"center",color:"#e67e22",border:"1px solid #e0d9f7",width:"14%"}}>📝 পরীক্ষা</th>
                 </tr>
               </thead>
               <tbody>
                 {(plan.rows||[]).map((row,i)=>(
-                  <tr key={i} style={{background:i%2===0?"#fff":"#fafafe"}}>
+                  <tr key={i} style={{background:row.hasExam?"#fff8e1":(i%2===0?"#fff":"#fafafe")}}>
                     <td style={{padding:"8px 10px",border:"1px solid #e0d9f7",fontSize:11,color:"#444",fontWeight:600,verticalAlign:"top"}}>{row.dayLabel}</td>
                     <td style={{padding:"8px 10px",border:"1px solid #e0d9f7",fontSize:11,color:"#333",verticalAlign:"top",whiteSpace:"pre-wrap"}}>{row.lessonPlan||<span style={{color:"#bbb"}}>—</span>}</td>
                     <td style={{padding:"8px 10px",border:"1px solid #e0d9f7",fontSize:11,color:"#333",verticalAlign:"top",whiteSpace:"pre-wrap"}}>{row.hw||<span style={{color:"#bbb"}}>—</span>}</td>
+                    <td style={{padding:"8px 10px",border:"1px solid #e0d9f7",textAlign:"center",verticalAlign:"top"}}>
+                      {row.hasExam?<div><span style={{fontSize:13}}>📝</span>{row.examNote&&<div style={{fontSize:10,color:"#e67e22",marginTop:2}}>{row.examNote}</div>}</div>:<span style={{color:"#bbb",fontSize:11}}>—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -6021,7 +6348,7 @@ function LPViewModal({plan,onClose}){
 }
 
 // মূল LessonPlans কম্পোনেন্ট — Dynamic Weekly সিস্টেম
-function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubjects={},STUDENTS}){
+function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubjects={},STUDENTS,examSchedule=[],setExamSchedule=()=>{}}){
   STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [viewPlan,setViewPlan]=useState(null);
   const [showForm,setShowForm]=useState(null); // {assignment:{cls,sub}}
@@ -6083,9 +6410,34 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
     flash("✓ পাঠ পরিকল্পনা সফলভাবে জমা দেওয়া হয়েছে! অনুমোদনের জন্য অপেক্ষা করুন।");
   };
 
-  // Admin অনুমোদন
+  // Admin অনুমোদন — approve হলে exam entries extract করে examSchedule এ যোগ
   const handleApprove=(id)=>{
+    const allV2=lessonPlans._v2||[];
+    const plan=allV2.find(p=>p.id===id);
     setLessonPlans(prev=>({...prev,_v2:(prev._v2||[]).map(p=>p.id===id?{...p,status:LP_STATUS.APPROVED,reviewedAt:new Date().toISOString()}:p)}));
+    // Weekly LP থেকে পরীক্ষার এন্ট্রি extract
+    if(plan&&plan.type==="weekly"&&plan.rows){
+      const newExams=plan.rows
+        .filter(r=>r.hasExam)
+        .map(r=>({
+          id:`${plan.id}__${r.date}`,
+          teacher:plan.teacher,
+          cls:plan.cls||"",
+          subject:plan.subject||"",
+          date:r.date,
+          dayLabel:r.dayLabel,
+          weekLabel:plan.weekLabel||"",
+          examNote:r.examNote||"",
+          status:"pending" // pending | taken | nottaken | excused
+        }));
+      if(newExams.length>0){
+        setExamSchedule(prev=>{
+          // একই id এর পুরনো entry replace করো
+          const ids=new Set(newExams.map(e=>e.id));
+          return [...prev.filter(e=>!ids.has(e.id)),...newExams];
+        });
+      }
+    }
     setViewPlan(null);
     flash("✅ পাঠ পরিকল্পনা অনুমোদন করা হয়েছে।");
   };
@@ -6367,7 +6719,7 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
 /* ══════════════════════════════════════════════
    ★★★ KPI MODULE — UPGRADED ★★★
 ══════════════════════════════════════════════ */
-function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDENTS}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDENTS,examSchedule=[]}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [tab,setTab]=useState("ranking");
   const [selTeacher,setSelTeacher]=useState("");
   const [selProfile,setSelProfile]=useState(null);
@@ -6375,9 +6727,9 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
 
   // সব শিক্ষকের KPI গণনা
   const kpiAll=useMemo(()=>
-    TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions)}))
+    TEACHERS.map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule)}))
       .sort((a,b)=>b.score-a.score)
-  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions]);
+  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule]);
 
   const gradeColor=g=>g==="A+"?C.gr:g==="A"?C.te:g==="B"?C.am:g==="C"||g==="D"?C.co:C.mu;
 
@@ -10214,6 +10566,9 @@ function App(){
   const [studentProfiles,setStudentProfiles]=useState({});
   const [lastExportTs,setLastExportTs]=useState(null);
   const [sscData,setSscData]=useState({profiles:{},weeklyTargets:{},weeklyReports:{}});
+  // পরীক্ষার সময়সূচি — approved lesson plan থেকে extract হয়
+  // {id, teacher, cls, subject, date, dayLabel, weekLabel, examNote, status: "pending"|"taken"|"nottaken"|"excused"}
+  const [examSchedule,setExamSchedule]=useState([]);
   const [coordTaskStatus,setCoordTaskStatus]=useState(()=>{
     const s={};
     ALL_COORD_TASK_IDS.forEach(id=>{s[id]={done:false,doneAt:null};});
@@ -10245,6 +10600,7 @@ function App(){
         if(d.customTeachers){setCustomTeachers(d.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...d.customTeachers];}
         if(d.studentProfiles)setStudentProfiles(d.studentProfiles);
         if(d.sscData)setSscData(d.sscData);
+        if(d.examSchedule)setExamSchedule(d.examSchedule);
       }
       // শেষ export তারিখ
       const expTs=await HAISDB.get("hais_last_export_v1");
@@ -10296,15 +10652,16 @@ function App(){
     });
 
     const loadFromFirebase=async()=>{
-      await waitForAuth();
-      if(!window.__fbReady){fbApplyDoneRef.current=true;setFbLoaded(true);return;}
-      try{
-        const snap=await window.__fbDB.ref(FB_PATH).once("value");
-        if(snap.exists()){
-          const data=snap.val();
-          // Firebase ডেটা apply করো — skipNextFbPushRef দিয়ে auto-save block
+      // লগইনের আগেই pre-fetch হয়েছে কিনা দেখো — হলে সাথে সাথে apply করো
+      if(window.__fbPreloadDone){
+        if(window.__fbPreloadData){
+          const data=window.__fbPreloadData;
           skipNextFbPushRef.current=true;
-          if(data.results!==undefined)setResults(data.results);
+          // results_v2 (granular) থাকলে সেটা merge করো, না হলে পুরনো results ব্যবহার করো
+          const v2state=data.results_v2?fbResultsV2ToState(data.results_v2):null;
+          const mergedResults=v2state?(data.results?mergeResults(data.results,v2state):v2state):(data.results||undefined);
+          if(mergedResults!==undefined)setResults(mergedResults);
+          if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
           if(data.obsData!==undefined)setObsData(data.obsData);
           if(data.deadlines!==undefined)setDeadlines(data.deadlines);
@@ -10315,11 +10672,39 @@ function App(){
           if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
           if(data.sscData!==undefined)setSscData(data.sscData);
           HAISDB.setSync("hais_data_v3",data);
-          // React batch render শেষ হওয়ার পর skipNextFbPushRef reset
+          window.__fbPreloadData=null; // মেমোরি মুক্ত করো
+          setTimeout(()=>{skipNextFbPushRef.current=false;},500);
+          console.info("HAIS: Pre-loaded data applied instantly ✓");
+        }
+        fbApplyDoneRef.current=true;
+        setFbLoaded(true);
+        return;
+      }
+      // Pre-fetch এখনো চলছে — শেষ হওয়ার অপেক্ষা করো
+      await waitForAuth();
+      if(!window.__fbReady){fbApplyDoneRef.current=true;setFbLoaded(true);return;}
+      try{
+        const snap=await window.__fbDB.ref(FB_PATH).once("value");
+        if(snap.exists()){
+          const data=snap.val();
+          skipNextFbPushRef.current=true;
+          const v2state=data.results_v2?fbResultsV2ToState(data.results_v2):null;
+          const mergedResults=v2state?(data.results?mergeResults(data.results,v2state):v2state):(data.results||undefined);
+          if(mergedResults!==undefined)setResults(mergedResults);
+          if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
+          if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
+          if(data.obsData!==undefined)setObsData(data.obsData);
+          if(data.deadlines!==undefined)setDeadlines(data.deadlines);
+          if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
+          if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
+          if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+          if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
+          if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+          if(data.sscData!==undefined)setSscData(data.sscData);
+          HAISDB.setSync("hais_data_v3",data);
           setTimeout(()=>{skipNextFbPushRef.current=false;},500);
         }
       }catch(e){console.warn("Firebase load error:",e);}
-      // Firebase apply শেষ — এখন থেকে auto-save চলতে পারবে
       fbApplyDoneRef.current=true;
       setFbLoaded(true);
     };
@@ -10331,7 +10716,10 @@ function App(){
       if(data.savedAt&&selfWriteRef.current&&data.savedAt===selfWriteRef.current)return;
       // remote update — auto-save block করো, React batch render শেষে reset
       skipNextFbPushRef.current=true;
-      if(data.results!==undefined)setResults(data.results);
+      const v2state=data.results_v2?fbResultsV2ToState(data.results_v2):null;
+      const mergedResults=v2state?(data.results?mergeResults(data.results,v2state):v2state):(data.results||undefined);
+      if(mergedResults!==undefined)setResults(mergedResults);
+      if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
       if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
       if(data.obsData!==undefined)setObsData(data.obsData);
       if(data.deadlines!==undefined)setDeadlines(data.deadlines);
@@ -10354,7 +10742,7 @@ function App(){
     if(!dbReady||!fbLoaded)return;
     // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
     if(!fbApplyDoneRef.current)return;
-    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData};
+    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData,examSchedule};
     // remote থেকে আসা আপডেট — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
       prevValuesRef.current=current;
@@ -10378,10 +10766,13 @@ function App(){
     HAISDB.setSync("hais_data_v3",payload);
     // কোন কোন top-level field পরিবর্তিত হয়েছে
     const prev=prevValuesRef.current;
-    const changedKeys=!prev?Object.keys(current):Object.keys(current).filter(k=>current[k]!==prev[k]);
+    // results বাদ দাও — এটা ExamEntry থেকে granular write হয়, এখানে পাঠালে race condition হবে
+    const changedKeys=!prev
+      ?Object.keys(current).filter(k=>k!=="results")
+      :Object.keys(current).filter(k=>k!=="results"&&current[k]!==prev[k]);
     prevValuesRef.current=current;
     if(changedKeys.length===0)return;
-    // Firebase-এ 1.5s debounce — শুধু পরিবর্তিত field পাঠানো
+    // Firebase-এ 1.5s debounce — শুধু পরিবর্তিত field পাঠানো (results ছাড়া)
     const t=setTimeout(async()=>{
       const partial={savedAt};
       changedKeys.forEach(k=>{partial[k]=current[k];});
@@ -10517,7 +10908,7 @@ function App(){
 
     /* ── শিক্ষক KPI তালিকা ── */
     const kpiRows=TEACHERS.map(teacher=>{
-      const kpi=calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions);
+      const kpi=calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule);
       if(kpi.score===0)return"";
       const gc=kpi.grade==="A+"?"#3b6d11":kpi.grade==="A"?"#0f6e56":kpi.grade==="B"?"#854f0b":kpi.grade==="C"||kpi.grade==="D"?"#993c1d":"#6b6b8a";
       const barW=kpi.score;
@@ -10776,15 +11167,15 @@ function App(){
       {PAGES.filter(p=>!p.adminOnly||(currentUser===ADMIN_TEACHER)).map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
     </div>
     <div style={{padding:"12px",maxWidth:700,margin:"0 auto"}}>
-      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser}/>}
+      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={currentUser===ADMIN_TEACHER}/>}
       {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser}/>}
-      {page==="teachers" &&(currentUser===ADMIN_TEACHER?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} STUDENTS={STUDENTS}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
+      {page==="teachers" &&(currentUser===ADMIN_TEACHER?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
       {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS}/>}
-      {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
+      {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
       {page==="observe"  &&(currentUser===ADMIN_TEACHER?<TeacherObservation obsData={obsData} setObsData={setObsData}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="peer_obs" &&<PeerObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS}/>}
-      {page==="kpi"      &&(currentUser===ADMIN_TEACHER?<KPI results={results} lessonPlans={lessonPlans} obsData={obsData} dlSubmissions={dlSubmissions} deadlines={deadlines} STUDENTS={STUDENTS}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
+      {page==="kpi"      &&(currentUser===ADMIN_TEACHER?<KPI results={results} lessonPlans={lessonPlans} obsData={obsData} dlSubmissions={dlSubmissions} deadlines={deadlines} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="events"      &&<UpcomingEvents deadlines={deadlines} setDeadlines={setDeadlines} dlSubmissions={dlSubmissions} setDlSubmissions={setDlSubmissions} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER}/>}
       {page==="arch"        &&(currentUser===ADMIN_TEACHER?<Architecture/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="whitelist"  &&(currentUser===ADMIN_TEACHER?<WhitelistManager/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
