@@ -459,12 +459,14 @@ function BulkAttendance({obsData,setObsData}){
     present:{label:"উপস্থিত",color:C.gr,icon:"✓"},
     late:{label:"দেরিতে",color:C.am,icon:"⏰"},
     absent:{label:"অনুপস্থিত",color:C.re,icon:"✗"},
+    leave:{label:"ছুটিতে",color:"#6366f1",icon:"🏖"},
   };
 
   const counts={
     present:TEACHERS.filter(t=>statuses[t]==="present").length,
     late:TEACHERS.filter(t=>statuses[t]==="late").length,
     absent:TEACHERS.filter(t=>statuses[t]==="absent").length,
+    leave:TEACHERS.filter(t=>statuses[t]==="leave").length,
   };
 
   return(<div>
@@ -536,6 +538,10 @@ function BulkAttendance({obsData,setObsData}){
           <div style={{fontSize:18,fontWeight:700,color:C.re}}>{counts.absent}</div>
           <div style={{fontSize:10,color:C.re}}>অনুপস্থিত</div>
         </div>
+        <div style={{textAlign:"center",padding:"6px 12px",borderRadius:8,background:"#6366f118",border:"1px solid #6366f130"}}>
+          <div style={{fontSize:18,fontWeight:700,color:"#6366f1"}}>{counts.leave}</div>
+          <div style={{fontSize:10,color:"#6366f1"}}>ছুটিতে</div>
+        </div>
         <div style={{textAlign:"center",padding:"6px 12px",borderRadius:8,background:C.pu+"18",border:`1px solid ${C.pu}30`}}>
           <div style={{fontSize:18,fontWeight:700,color:C.pu}}>{TEACHERS.length}</div>
           <div style={{fontSize:10,color:C.pu}}>মোট</div>
@@ -568,8 +574,8 @@ function BulkAttendance({obsData,setObsData}){
           </div>
           <div style={{display:"flex",gap:3}}>
             {recent.map((a,i)=>(
-              <div key={i} title={`${a.date}: ${a.status==="present"?"উপস্থিত":a.status==="late"?"দেরিতে":"অনুপস্থিত"}`}
-                style={{width:18,height:18,borderRadius:4,background:a.status==="present"?C.gr:a.status==="late"?C.am:C.re,flexShrink:0}}/>
+              <div key={i} title={`${a.date}: ${a.status==="present"?"উপস্থিত":a.status==="late"?"দেরিতে":a.status==="leave"?"ছুটিতে":"অনুপস্থিত"}`}
+                style={{width:18,height:18,borderRadius:4,background:a.status==="present"?C.gr:a.status==="late"?C.am:a.status==="leave"?"#6366f1":C.re,flexShrink:0}}/>
             ))}
           </div>
         </div>);
@@ -1123,6 +1129,278 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
 
 /* KPI গণনা ফাংশন — কেন্দ্রীয় */
 
+
+/* ══ DAILY TASK SCHEDULER — শুধুমাত্র MD ABU SAYED এর জন্য ══ */
+const DEFAULT_DAILY_TASKS=[
+  {id:"t0600",time:"06:00",task:"ফজরের নামাজের পর কুরআন তিলাওয়াত ও দিনের পরিকল্পনা",done:false},
+  {id:"t0630",time:"06:30",task:"ব্যক্তিগত প্রস্তুতি ও স্বাস্থ্যচর্চা",done:false},
+  {id:"t0700",time:"07:00",task:"স্কুলের উদ্দেশ্যে রওনা / যাতায়াত",done:false},
+  {id:"t0730",time:"07:30",task:"স্কুলে পৌঁছানো ও গেট ডিউটি পর্যবেক্ষণ",done:false},
+  {id:"t0800",time:"08:00",task:"সকালের সমাবেশ পরিচালনা ও শিক্ষার্থী উপস্থিতি নিশ্চিত করা",done:false},
+  {id:"t0830",time:"08:30",task:"শিক্ষকদের উপস্থিতি নিশ্চিত করা ও দৈনিক রুটিন বণ্টন",done:false},
+  {id:"t0900",time:"09:00",task:"প্রথম পিরিয়ড ক্লাস পর্যবেক্ষণ",done:false},
+  {id:"t0930",time:"09:30",task:"অফিসিয়াল কাগজপত্র ও চিঠিপত্র নিষ্পত্তি",done:false},
+  {id:"t1000",time:"10:00",task:"অভিভাবক সাক্ষাৎ ও পরামর্শ",done:false},
+  {id:"t1030",time:"10:30",task:"দ্বিতীয় পিরিয়ড ক্লাস পর্যবেক্ষণ",done:false},
+  {id:"t1100",time:"11:00",task:"লেসন প্ল্যান পর্যালোচনা ও অনুমোদন",done:false},
+  {id:"t1130",time:"11:30",task:"শিক্ষক পারফরমেন্স মূল্যায়ন আপডেট",done:false},
+  {id:"t1200",time:"12:00",task:"জুহরের নামাজ ও বিশ্রাম",done:false},
+  {id:"t1230",time:"12:30",task:"মধ্যাহ্ন বিরতি তদারকি",done:false},
+  {id:"t1300",time:"13:00",task:"তৃতীয় পিরিয়ড ক্লাস পর্যবেক্ষণ",done:false},
+  {id:"t1330",time:"13:30",task:"প্রশাসনিক কাজ ও রিপোর্ট তৈরি",done:false},
+  {id:"t1400",time:"14:00",task:"শিক্ষার্থীদের সমস্যা শ্রবণ ও সমাধান",done:false},
+  {id:"t1430",time:"14:30",task:"চতুর্থ পিরিয়ড ক্লাস পর্যবেক্ষণ",done:false},
+  {id:"t1500",time:"15:00",task:"আসরের নামাজ",done:false},
+  {id:"t1530",time:"15:30",task:"শিক্ষকদের সাথে দলীয় আলোচনা",done:false},
+  {id:"t1600",time:"16:00",task:"স্কুল ছুটির পর পরিবেশ পর্যবেক্ষণ",done:false},
+  {id:"t1630",time:"16:30",task:"দিনের একাডেমিক কার্যক্রমের পর্যালোচনা",done:false},
+  {id:"t1700",time:"17:00",task:"পরবর্তী দিনের পরিকল্পনা প্রস্তুত",done:false},
+  {id:"t1730",time:"17:30",task:"অফিস বন্ধ ও নথিপত্র সংরক্ষণ",done:false},
+  {id:"t1800",time:"18:00",task:"মাগরিবের নামাজ ও পরিবারের সাথে সময়",done:false},
+  {id:"t1830",time:"18:30",task:"পেশাদার পড়াশোনা ও গবেষণা",done:false},
+  {id:"t1900",time:"19:00",task:"এশার নামাজ",done:false},
+  {id:"t1930",time:"19:30",task:"দিনের KPI রিভিউ ও HAIS আপডেট",done:false},
+  {id:"t2000",time:"20:00",task:"পরিবারের সাথে রাতের খাবার ও আলোচনা",done:false},
+  {id:"t2030",time:"20:30",task:"শিক্ষামূলক ভিডিও / পডকাস্ট",done:false},
+  {id:"t2100",time:"21:00",task:"পরের দিনের বিশেষ ইভেন্ট প্রস্তুতি",done:false},
+  {id:"t2130",time:"21:30",task:"শিক্ষক মূল্যায়ন নোট লেখা",done:false},
+  {id:"t2200",time:"22:00",task:"দৈনিক ডায়েরি / জার্নাল লেখা",done:false},
+  {id:"t2230",time:"22:30",task:"বিশ্রামের প্রস্তুতি",done:false},
+  {id:"t2300",time:"23:00",task:"ঘুমানোর প্রস্তুতি",done:false},
+  {id:"t2330",time:"23:30",task:"রাতের দোয়া ও কুরআন তিলাওয়াত",done:false},
+  {id:"t0000",time:"00:00",task:"বিশ্রাম",done:false},
+  {id:"t0030",time:"00:30",task:"বিশ্রাম",done:false},
+  {id:"t0100",time:"01:00",task:"বিশ্রাম",done:false},
+  {id:"t0130",time:"01:30",task:"বিশ্রাম",done:false},
+  {id:"t0200",time:"02:00",task:"বিশ্রাম",done:false},
+  {id:"t0230",time:"02:30",task:"তাহাজ্জুদের নামাজ (ঐচ্ছিক)",done:false},
+  {id:"t0300",time:"03:00",task:"বিশ্রাম",done:false},
+  {id:"t0330",time:"03:30",task:"বিশ্রাম",done:false},
+  {id:"t0400",time:"04:00",task:"সেহরি (রমজান মাসে) / বিশ্রাম",done:false},
+  {id:"t0430",time:"04:30",task:"ফজরের আজানের আগে উঠুন",done:false},
+  {id:"t0500",time:"05:00",task:"ফজরের নামাজ ও কুরআন তিলাওয়াত",done:false},
+  {id:"t0530",time:"05:30",task:"সকালের ব্যায়াম ও স্বাস্থ্যচর্চা",done:false},
+];
+
+function DailyTaskScheduler({dailyTasks,setDailyTasks}){
+  const [editId,setEditId]=useState(null);
+  const [editTime,setEditTime]=useState("");
+  const [editTask,setEditTask]=useState("");
+  const [newTime,setNewTime]=useState("");
+  const [newTask,setNewTask]=useState("");
+  const [showAdd,setShowAdd]=useState(false);
+  const [notifPerm,setNotifPerm]=useState(window.Notification?Notification.permission:"denied");
+  const [filter,setFilter]=useState("all"); // "all" | "pending" | "done"
+
+  const now=new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+  // সকাল ৬টা থেকে দিন শুরু
+  const toMin=(t)=>{const [h,m]=(t||"00:00").split(":").map(Number);return h*60+m;};
+  const isCurrentSlot=(t)=>{const m=toMin(t);return m<=nowMin&&nowMin<m+30;};
+  const isPast=(t)=>{return toMin(t)<nowMin;};
+
+  const sorted=[...dailyTasks].sort((a,b)=>toMin(a.time)-toMin(b.time));
+  const displayed=filter==="pending"?sorted.filter(t=>!t.done):filter==="done"?sorted.filter(t=>t.done):sorted;
+
+  const toggleDone=(id)=>{
+    setDailyTasks(prev=>prev.map(t=>t.id===id?{...t,done:!t.done,doneAt:!t.done?new Date().toISOString():null}:t));
+  };
+
+  const saveEdit=(id)=>{
+    if(!editTask.trim())return;
+    setDailyTasks(prev=>prev.map(t=>t.id===id?{...t,time:editTime,task:editTask.trim()}:t));
+    setEditId(null);
+  };
+
+  const deleteTask=(id)=>{
+    if(window.confirm("এই কাজটি মুছে ফেলবেন?"))
+      setDailyTasks(prev=>prev.filter(t=>t.id!==id));
+  };
+
+  const addTask=()=>{
+    if(!newTask.trim()||!newTime)return;
+    const id="t"+newTime.replace(":","")+"_"+Date.now();
+    setDailyTasks(prev=>[...prev,{id,time:newTime,task:newTask.trim(),done:false}]);
+    setNewTime("");setNewTask("");setShowAdd(false);
+  };
+
+  const resetAll=()=>{
+    if(window.confirm("আজকের সব চেকবক্স রিসেট করবেন?"))
+      setDailyTasks(prev=>prev.map(t=>({...t,done:false,doneAt:null})));
+  };
+
+  // Push Notification অনুমতি
+  const requestNotif=async()=>{
+    if(!window.Notification){alert("আপনার ব্রাউজার notification সমর্থন করে না");return;}
+    const perm=await Notification.requestPermission();
+    setNotifPerm(perm);
+    if(perm==="granted"){
+      new Notification("HAIS — নোটিফিকেশন সক্রিয়",{body:"এখন থেকে দৈনন্দিন কার্যক্রমের সময় আপনি notification পাবেন",icon:"/favicon.ico"});
+      // Service Worker registration
+      if(navigator.serviceWorker){
+        try{
+          const reg=await navigator.serviceWorker.ready;
+          // schedule প্রতিটি task এর জন্য
+          dailyTasks.forEach(task=>{
+            if(task.done)return;
+            const [h,m]=task.time.split(":").map(Number);
+            const target=new Date();
+            target.setHours(h,m,0,0);
+            if(target<new Date())target.setDate(target.getDate()+1);
+            const delay=target-new Date()-5*60*1000; // ৫ মিনিট আগে
+            if(delay>0&&delay<24*60*60*1000){
+              setTimeout(()=>{
+                if(Notification.permission==="granted"){
+                  new Notification(`⏰ ${task.time} — ${task.task.slice(0,40)}`,{
+                    body:"এই কাজটি শুরু হতে ৫ মিনিট বাকি",
+                    icon:"/favicon.ico",
+                    tag:task.id,
+                  });
+                }
+              },delay);
+            }
+          });
+          alert("✅ Notification schedule সম্পন্ন! প্রতিটি কাজের ৫ মিনিট আগে notification আসবে।");
+        }catch(e){console.log("SW not ready:",e);}
+      }
+    }
+  };
+
+  const done=dailyTasks.filter(t=>t.done).length;
+  const total=dailyTasks.length;
+  const pct=total?Math.round(done/total*100):0;
+
+  return(
+    <div style={{marginTop:16}}>
+      {/* হেডার */}
+      <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:15}}>📋 দৈনন্দিন কার্যক্রম</div>
+            <div style={{color:"rgba(255,255,255,0.6)",fontSize:11,marginTop:2}}>শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{color:"#f59e0b",fontWeight:800,fontSize:22}}>{pct}%</div>
+            <div style={{color:"rgba(255,255,255,0.6)",fontSize:10}}>{done}/{total} সম্পন্ন</div>
+          </div>
+        </div>
+        {/* progress bar */}
+        <div style={{height:4,background:"rgba(255,255,255,0.15)",borderRadius:2,marginTop:8}}>
+          <div style={{width:`${pct}%`,height:"100%",background:"#f59e0b",borderRadius:2,transition:"width 0.4s"}}/>
+        </div>
+      </div>
+
+      {/* controls */}
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+        {["all","pending","done"].map(f=>(
+          <button key={f} onClick={()=>setFilter(f)}
+            style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+              background:filter===f?"#1a1a2e":"#f5f5f5",color:filter===f?"#fff":"#555"}}>
+            {f==="all"?"সব":f==="pending"?"বাকি":"সম্পন্ন"}
+          </button>
+        ))}
+        <button onClick={()=>setShowAdd(v=>!v)}
+          style={{marginLeft:"auto",padding:"5px 12px",borderRadius:16,border:"1px solid #22c55e",background:"#f0fdf4",color:"#22c55e",cursor:"pointer",fontSize:11,fontWeight:700}}>
+          ＋ নতুন কাজ
+        </button>
+        <button onClick={resetAll}
+          style={{padding:"5px 10px",borderRadius:16,border:"1px solid #ef4444",background:"#fff0f0",color:"#ef4444",cursor:"pointer",fontSize:11,fontWeight:700}}>
+          🔄 রিসেট
+        </button>
+        {notifPerm!=="granted"?(
+          <button onClick={requestNotif}
+            style={{padding:"5px 10px",borderRadius:16,border:"1px solid #f59e0b",background:"#fffbeb",color:"#d97706",cursor:"pointer",fontSize:11,fontWeight:700}}>
+            🔔 Notification চালু
+          </button>
+        ):(
+          <span style={{padding:"5px 10px",fontSize:11,color:"#22c55e",fontWeight:700}}>🔔 চালু</span>
+        )}
+      </div>
+
+      {/* নতুন কাজ যোগ */}
+      {showAdd&&(
+        <div style={{background:"#f0fdf4",border:"1px solid #22c55e40",borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div>
+            <div style={{fontSize:10,color:"#666",marginBottom:3}}>সময়</div>
+            <input type="time" value={newTime} onChange={e=>setNewTime(e.target.value)}
+              style={{padding:"6px 8px",border:"1px solid #ddd",borderRadius:7,fontSize:13,width:100}}/>
+          </div>
+          <div style={{flex:1,minWidth:160}}>
+            <div style={{fontSize:10,color:"#666",marginBottom:3}}>কাজের বিবরণ</div>
+            <input type="text" value={newTask} onChange={e=>setNewTask(e.target.value)}
+              placeholder="কাজের বিবরণ লিখুন..."
+              style={{width:"100%",padding:"6px 8px",border:"1px solid #ddd",borderRadius:7,fontSize:13,boxSizing:"border-box"}}/>
+          </div>
+          <button onClick={addTask}
+            style={{padding:"6px 14px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
+            যোগ করুন
+          </button>
+        </div>
+      )}
+
+      {/* task list */}
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {displayed.map(task=>{
+          const current=isCurrentSlot(task.time);
+          const past=isPast(task.time);
+          const isEditing=editId===task.id;
+          return(
+            <div key={task.id} style={{
+              background:task.done?"#f0fdf4":current?"#fffbeb":"#fff",
+              border:`1.5px solid ${task.done?"#22c55e40":current?"#f59e0b":"#e5e7eb"}`,
+              borderLeft:`4px solid ${task.done?"#22c55e":current?"#f59e0b":past?"#e5e7eb":"#6366f1"}`,
+              borderRadius:9,padding:"8px 10px",transition:"all 0.2s"
+            }}>
+              {isEditing?(
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  <div style={{display:"flex",gap:6}}>
+                    <input type="time" value={editTime} onChange={e=>setEditTime(e.target.value)}
+                      style={{padding:"4px 7px",border:"1px solid #ddd",borderRadius:6,fontSize:12,width:90}}/>
+                    <input type="text" value={editTask} onChange={e=>setEditTask(e.target.value)}
+                      style={{flex:1,padding:"4px 7px",border:"1px solid #6366f1",borderRadius:6,fontSize:12}}/>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>saveEdit(task.id)}
+                      style={{flex:1,padding:"4px",borderRadius:6,border:"none",background:"#6366f1",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                      ✓ সেভ
+                    </button>
+                    <button onClick={()=>setEditId(null)}
+                      style={{padding:"4px 10px",borderRadius:6,border:"1px solid #ddd",background:"#fff",cursor:"pointer",fontSize:12}}>
+                      বাতিল
+                    </button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="checkbox" checked={!!task.done} onChange={()=>toggleDone(task.id)}
+                    style={{width:17,height:17,cursor:"pointer",accentColor:"#22c55e",flexShrink:0}}/>
+                  <span style={{fontSize:11,fontWeight:700,color:current?"#d97706":"#888",flexShrink:0,minWidth:38}}>
+                    {task.time}
+                  </span>
+                  {current&&<span style={{fontSize:9,background:"#f59e0b",color:"#fff",borderRadius:8,padding:"1px 6px",fontWeight:700,flexShrink:0}}>এখন</span>}
+                  <span style={{flex:1,fontSize:12,color:task.done?"#22c55e":"#1a1a2e",textDecoration:task.done?"line-through":"none",fontWeight:current?700:400}}>
+                    {task.task}
+                  </span>
+                  <div style={{display:"flex",gap:4,flexShrink:0}}>
+                    <button onClick={()=>{setEditId(task.id);setEditTime(task.time);setEditTask(task.task);}}
+                      style={{background:"#f5f5f5",border:"none",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#666"}}>
+                      ✎
+                    </button>
+                    <button onClick={()=>deleteTask(task.id)}
+                      style={{background:"#fff0f0",border:"none",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#ef4444"}}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ══ EXAM SCHEDULE MODAL ══ */
 function ExamScheduleModal({examSchedule,setExamSchedule,isAdmin,onClose}){
   const today=new Date().toISOString().slice(0,10);
@@ -1320,7 +1598,8 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   const attList=obs.attendance||[];
   const presentDays=attList.filter(a=>a.status==="present").length;
   const lateCount=attList.filter(a=>a.status==="late").length;
-  const totalDays=attList.length;
+  const leaveDays=attList.filter(a=>a.status==="leave").length; // ছুটি — KPI তে গণনা হবে না
+  const totalDays=attList.length-leaveDays; // ছুটির দিন বাদ দিয়ে মোট কার্যদিবস
   const attScore=totalDays?Math.min(100,Math.round((presentDays+lateCount*0.5)/totalDays*100)):0;
 
   const insList=obs.inspections||[];
@@ -1946,7 +2225,7 @@ function GradeBreakdownModal({STUDENTS,allRes,onClose,studentProfiles,setStudent
   );
 }
 
-function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,currentUser="",examSchedule=[],setExamSchedule=()=>{},isAdmin=false}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,currentUser="",examSchedule=[],setExamSchedule=()=>{},isAdmin=false,dailyTasks=[],setDailyTasks=()=>{}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [dashProfile,setDashProfile]=useState(null);// {type:"teacher"|"student", name, cls}
   const [showHealthModal,setShowHealthModal]=useState(false);
   const [showExamSchedule,setShowExamSchedule]=useState(false);
@@ -2191,6 +2470,8 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       </div>
     )}
     {showExamSchedule&&<ExamScheduleModal examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={isAdmin} onClose={()=>setShowExamSchedule(false)}/>}
+    {/* দৈনন্দিন কার্যক্রম — শুধুমাত্র MD ABU SAYED */}
+    {currentUser===ADMIN_TEACHER&&<DailyTaskScheduler dailyTasks={dailyTasks} setDailyTasks={setDailyTasks}/>}
     <Card><H3>শ্রেণিভিত্তিক শিক্ষার্থী সংখ্যা</H3><BarChart data={clsData} color={C.pu} height={80}/></Card>
     {allRes.length>0&&(<Card>
       <H3>শ্রেণিভিত্তিক পারফরমেন্স হিটম্যাপ</H3>
@@ -3529,6 +3810,7 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
               <div style={{fontWeight:700,fontSize:16,color:C.pu}}>{name}</div>
               <div style={{fontSize:11,color:C.mu}}>শিক্ষক • Heritage Public School</div>
               {name===ADMIN_TEACHER&&<div style={{fontSize:11,color:C.am,fontWeight:600}}>👑 একাডেমিক ইনচার্জ</div>}
+              {name===REP_TEACHER&&<div style={{fontSize:11,color:"#e67e22",fontWeight:600}}>⚡ শিক্ষক প্রতিনিধি</div>}
             </div>
           </div>
           <button onClick={onClose} style={{border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontWeight:700,fontSize:14}}>✕</button>
@@ -4007,7 +4289,8 @@ function Teachers({results,lessonPlans,obsData={},teacherSubjects={},setTeacherS
 
 
 /* ══ EXAM ENTRY ══ */
-function ExamEntry({results,setResults,currentUser="",isAdmin=true,teacherSubjects={},STUDENTS}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,teacherSubjects={},STUDENTS}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+  const canSelectTeacher=isAdmin||isRep; // Admin বা Rep উভয়েই যেকোনো শিক্ষক select করতে পারবেন
   const [cls,setCls]=useState("VI");
   const [sub,setSub]=useState((SUBJECTS_BY_CLASS["VI"]||SUBJECTS)[0]);
   const [ex,setEx]=useState("Half-Yearly Exam");
@@ -4015,7 +4298,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,teacherSubjec
   const [examDate,setExamDate]=useState("");
   const [marks,setMarks]=useState({});
   const [absent,setAbsent]=useState({});// {name: true/false}
-  const [teacher,setTeacher]=useState(isAdmin?TEACHERS[0]:(currentUser||TEACHERS[0]));
+  const [teacher,setTeacher]=useState(canSelectTeacher?TEACHERS[0]:(currentUser||TEACHERS[0]));
   const [fullMarks,setFullMarks]=useState(100);
   const [passMarks,setPassMarks]=useState(33);
   const [msg,setMsg]=useState("");
@@ -4130,8 +4413,11 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,teacherSubjec
         <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>পরীক্ষার ধরন</div><select value={ex} onChange={e=>setEx(e.target.value)}>{exList.map(e=><option key={e}>{e}</option>)}</select></div>
         <div>
           <div style={{fontSize:11,color:C.mu,marginBottom:4}}>শিক্ষক</div>
-          {isAdmin
-            ?<select value={teacher} onChange={e=>handleTeacherChange(e.target.value)}>{TEACHERS.map(t=><option key={t}>{t}</option>)}</select>
+          {canSelectTeacher
+            ?<div>
+              <select value={teacher} onChange={e=>handleTeacherChange(e.target.value)} style={{width:"100%"}}>{TEACHERS.map(t=><option key={t}>{t}</option>)}</select>
+              {isRep&&<div style={{fontSize:10,color:"#e67e22",marginTop:3,fontWeight:600}}>⚡ প্রতিনিধি হিসেবে ইনপুট দিচ্ছেন</div>}
+            </div>
             :<div style={{padding:"8px 12px",background:"#f5f5f5",borderRadius:8,fontSize:14,fontWeight:600,color:C.pu}}>{teacher}</div>}
         </div>
         <div>
@@ -5279,6 +5565,7 @@ function formatCountdown(ms){
 
 /* ══ AUTH SYSTEM (Secured v2) ══ */
 const ADMIN_TEACHER="MD ABU SAYED";
+const REP_TEACHER="LUTFOR RAHMAN"; // শিক্ষক প্রতিনিধি — অন্য শিক্ষকের পক্ষে সব ইনপুট দিতে পারবেন
 const LS_AUTH_KEY="hais_auth_v2";
 const LS_PASS_KEY="hais_creds_v1";
 const MAX_ATTEMPTS=5;         // সর্বোচ্চ ব্যর্থ চেষ্টা
@@ -6056,10 +6343,12 @@ function WeeklyLPViewModal({plan,onClose,isAdmin=false,onApprove=null}){
 
 function LPSubmitForm({currentUser,onSubmit,onCancel,initial=null,teacherSubjects={}}){
   const today=new Date().toLocaleDateString("bn-BD");
-  const [teacher,setTeacher]=useState(initial?.teacher||(currentUser==="ADMIN"?TEACHERS[0]:currentUser)||TEACHERS[0]);
-  const [cls,setCls]=useState(initial?.cls||"VI");
   const isAdmin=(currentUser==="ADMIN");
-  const selTeacher=isAdmin?teacher:currentUser;
+  const isRep=(currentUser===REP_TEACHER);
+  const canSelectTeacher=isAdmin||isRep;
+  const [teacher,setTeacher]=useState(initial?.teacher||(canSelectTeacher?TEACHERS[0]:currentUser)||TEACHERS[0]);
+  const [cls,setCls]=useState(initial?.cls||"VI");
+  const selTeacher=canSelectTeacher?teacher:currentUser;
   const clsSubjects=SUBJECTS_BY_CLASS[cls]||SUBJECTS;
   const allowedSubjects=useMemo(()=>{
     const mapped=teacherSubjects[selTeacher];
@@ -6143,6 +6432,13 @@ function LPSubmitForm({currentUser,onSubmit,onCancel,initial=null,teacherSubject
                 <select value={teacher} onChange={e=>setTeacher(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
                   {TEACHERS.map(t=><option key={t}>{t}</option>)}
                 </select>
+              </div>
+            ):isRep?(
+              <div><FLabel req>শিক্ষক (প্রতিনিধি হিসেবে)</FLabel>
+                <select value={teacher} onChange={e=>setTeacher(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid #e67e22`,borderRadius:8,fontSize:13}}>
+                  {TEACHERS.map(t=><option key={t}>{t}</option>)}
+                </select>
+                <div style={{fontSize:10,color:"#e67e22",marginTop:3,fontWeight:600}}>⚡ প্রতিনিধি হিসেবে জমা দিচ্ছেন</div>
               </div>
             ):(
               <div><FLabel>শিক্ষক</FLabel>
@@ -6359,7 +6655,10 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   const [tick,setTick]=useState(0);
 
   const isAdmin=(lpRole===LP_ROLES.ADMIN);
+  const isRep=(lpRole===REP_TEACHER);
   const currentTeacher=isAdmin?null:lpRole;
+  // Rep এর জন্য — কোন শিক্ষকের পক্ষে জমা দিচ্ছেন
+  const [repTargetTeacher,setRepTargetTeacher]=useState(TEACHERS.filter(t=>t!==REP_TEACHER)[0]||TEACHERS[0]);
 
   // প্রতি মিনিটে রি-রেন্ডার (উইন্ডো টাইমার আপডেটের জন্য)
   useEffect(()=>{
@@ -6385,18 +6684,19 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   // শিক্ষকের নির্ধারিত বিষয়+শ্রেণি
   const myAssignments=useMemo(()=>{
     if(isAdmin)return[];
-    return getTeacherAssignments(currentTeacher,teacherSubjects);
-  },[isAdmin,currentTeacher,teacherSubjects]);
+    return getTeacherAssignments(effectiveTeacher,teacherSubjects);
+  },[isAdmin,effectiveTeacher,teacherSubjects]);
 
   // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
+  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
   const submittedThisWeek=useMemo(()=>{
-    if(!currentTeacher)return{};
+    if(!effectiveTeacher)return{};
     const map={};
-    allPlans.filter(p=>p.teacher===currentTeacher&&p.weekLabel===weekLabel).forEach(p=>{
+    allPlans.filter(p=>p.teacher===effectiveTeacher&&p.weekLabel===weekLabel).forEach(p=>{
       map[`${p.cls}__${p.subject}`]=p;
     });
     return map;
-  },[allPlans,currentTeacher,weekLabel]);
+  },[allPlans,effectiveTeacher,weekLabel]);
 
   // জমা দেওয়া
   const handleSubmit=(plan)=>{
@@ -6474,7 +6774,7 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
     {/* ফর্ম মোডাল */}
     {showForm&&windowOpen&&(
       <WeeklyLPForm
-        teacher={currentTeacher}
+        teacher={effectiveTeacher}
         assignment={showForm.assignment}
         weekDays={weekDays}
         weekLabel={weekLabel}
@@ -6504,10 +6804,19 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
     <Card style={{padding:"10px 12px",marginBottom:12,background:isAdmin?"linear-gradient(135deg,#5344b508,#7c3aed08)":"linear-gradient(135deg,#0f6e5608,#e1f5ee)",border:`1px solid ${isAdmin?"#5344b5":"#0f6e56"}25`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{fontSize:26}}>{isAdmin?"👑":"👤"}</div>
+          <div style={{fontSize:26}}>{isAdmin?"👑":isRep?"⚡":"👤"}</div>
           <div>
-            <div style={{fontWeight:700,fontSize:13,color:isAdmin?"#5344b5":"#0f6e56"}}>{isAdmin?"একাডেমিক ইনচার্জ":currentTeacher}</div>
-            <div style={{fontSize:11,color:"#666",marginTop:1}}>{isAdmin?"সকল পাঠ পরিকল্পনা দেখতে ও অনুমোদন দিতে পারবেন":"পাঠ পরিকল্পনা জমা দিতে ও নিজের প্ল্যানের অবস্থা দেখতে পারবেন"}</div>
+            <div style={{fontWeight:700,fontSize:13,color:isAdmin?"#5344b5":isRep?"#e67e22":"#0f6e56"}}>{isAdmin?"একাডেমিক ইনচার্জ":isRep?"প্রতিনিধি: "+currentTeacher:currentTeacher}</div>
+            <div style={{fontSize:11,color:"#666",marginTop:1}}>{isAdmin?"সকল পাঠ পরিকল্পনা দেখতে ও অনুমোদন দিতে পারবেন":isRep?"অন্য শিক্ষকের পক্ষে পাঠ পরিকল্পনা জমা দিতে পারবেন":"পাঠ পরিকল্পনা জমা দিতে ও নিজের প্ল্যানের অবস্থা দেখতে পারবেন"}</div>
+            {isRep&&(
+              <div style={{marginTop:6,display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,color:"#e67e22",fontWeight:700}}>কার পক্ষে:</span>
+                <select value={repTargetTeacher} onChange={e=>setRepTargetTeacher(e.target.value)}
+                  style={{fontSize:12,padding:"3px 7px",border:"1px solid #e67e22",borderRadius:6,color:"#e67e22",fontWeight:600,outline:"none"}}>
+                  {TEACHERS.filter(t=>t!==REP_TEACHER).map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
           </div>
         </div>
         {/* উইন্ডো স্ট্যাটাস */}
@@ -10566,6 +10875,7 @@ function App(){
   const [studentProfiles,setStudentProfiles]=useState({});
   const [lastExportTs,setLastExportTs]=useState(null);
   const [sscData,setSscData]=useState({profiles:{},weeklyTargets:{},weeklyReports:{}});
+  const [dailyTasks,setDailyTasks]=useState(DEFAULT_DAILY_TASKS);
   // পরীক্ষার সময়সূচি — approved lesson plan থেকে extract হয়
   // {id, teacher, cls, subject, date, dayLabel, weekLabel, examNote, status: "pending"|"taken"|"nottaken"|"excused"}
   const [examSchedule,setExamSchedule]=useState([]);
@@ -10601,6 +10911,7 @@ function App(){
         if(d.studentProfiles)setStudentProfiles(d.studentProfiles);
         if(d.sscData)setSscData(d.sscData);
         if(d.examSchedule)setExamSchedule(d.examSchedule);
+        if(d.dailyTasks)setDailyTasks(d.dailyTasks);
       }
       // শেষ export তারিখ
       const expTs=await HAISDB.get("hais_last_export_v1");
@@ -10662,6 +10973,7 @@ function App(){
           const mergedResults=v2state?(data.results?mergeResults(data.results,v2state):v2state):(data.results||undefined);
           if(mergedResults!==undefined)setResults(mergedResults);
           if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
+          if(data.dailyTasks!==undefined)setDailyTasks(data.dailyTasks);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
           if(data.obsData!==undefined)setObsData(data.obsData);
           if(data.deadlines!==undefined)setDeadlines(data.deadlines);
@@ -10692,6 +11004,7 @@ function App(){
           const mergedResults=v2state?(data.results?mergeResults(data.results,v2state):v2state):(data.results||undefined);
           if(mergedResults!==undefined)setResults(mergedResults);
           if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
+          if(data.dailyTasks!==undefined)setDailyTasks(data.dailyTasks);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
           if(data.obsData!==undefined)setObsData(data.obsData);
           if(data.deadlines!==undefined)setDeadlines(data.deadlines);
@@ -10742,7 +11055,7 @@ function App(){
     if(!dbReady||!fbLoaded)return;
     // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
     if(!fbApplyDoneRef.current)return;
-    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData,examSchedule};
+    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,sscData,examSchedule,dailyTasks};
     // remote থেকে আসা আপডেট — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
       prevValuesRef.current=current;
@@ -11167,10 +11480,10 @@ function App(){
       {PAGES.filter(p=>!p.adminOnly||(currentUser===ADMIN_TEACHER)).map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
     </div>
     <div style={{padding:"12px",maxWidth:700,margin:"0 auto"}}>
-      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={currentUser===ADMIN_TEACHER}/>}
+      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={currentUser===ADMIN_TEACHER} dailyTasks={dailyTasks} setDailyTasks={setDailyTasks}/>}
       {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser}/>}
       {page==="teachers" &&(currentUser===ADMIN_TEACHER?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
-      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
+      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
       {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS}/>}
       {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
       {page==="observe"  &&(currentUser===ADMIN_TEACHER?<TeacherObservation obsData={obsData} setObsData={setObsData}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
