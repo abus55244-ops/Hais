@@ -241,6 +241,133 @@ const mergeResults=(oldR,newR)=>{
   });
   return merged;
 };
+/* ══ অতিরিক্ত granular write — সকল ডেটা টাইপের জন্য race-condition নিরাপত্তা ══
+   প্রতিটি function নির্দিষ্ট sub-path এ লেখে, ফলে একই সময়ে একাধিক ব্যবহারকারী
+   ভিন্ন ভিন্ন record edit করলেও কারো ডেটা মুছে যায় না। */
+
+// ── teacherSubjects: প্রতিটি শিক্ষকের mapping আলাদা path এ ──
+const fbSaveTeacherSubject=async(teacherName,subjectList)=>{
+  if(!window.__fbReady)return false;
+  try{
+    const k=_fbKey(teacherName);
+    await window.__fbDB.ref(`${FB_PATH}/teacherSubjects_v2/${k}`).set(subjectList);
+    return true;
+  }catch(err){console.error("FB teacherSubjects save:",err);return false;}
+};
+const fbTeacherSubjectsV2ToState=(v2obj)=>{
+  if(!v2obj)return null;
+  const state={};
+  // key থেকে আসল নাম বের করা সম্ভব না (sanitize হয়েছে), তাই key-কেই নাম হিসেবে রিভার্স ম্যাপ করি TEACHERS দিয়ে
+  TEACHERS.forEach(t=>{
+    const k=_fbKey(t);
+    if(v2obj[k]!==undefined)state[t]=v2obj[k];
+  });
+  return state;
+};
+
+// ── deadlines: প্রতিটি deadline আলাদা path এ (id ভিত্তিক) ──
+const fbSaveDeadline=async(deadline)=>{
+  if(!window.__fbReady||!deadline?.id)return false;
+  try{
+    await window.__fbDB.ref(`${FB_PATH}/deadlines_v2/${deadline.id}`).set(deadline);
+    return true;
+  }catch(err){console.error("FB deadline save:",err);return false;}
+};
+const fbDeleteDeadline=async(id)=>{
+  if(!window.__fbReady||!id)return false;
+  try{
+    await window.__fbDB.ref(`${FB_PATH}/deadlines_v2/${id}`).remove();
+    return true;
+  }catch(err){console.error("FB deadline delete:",err);return false;}
+};
+const fbDeadlinesV2ToArray=(v2obj)=>{
+  if(!v2obj)return null;
+  return Object.values(v2obj);
+};
+
+// ── dlSubmissions: deadlineId__teacherKey path এ আলাদা entry ──
+const fbSaveDlSubmission=async(deadlineId,teacherName,submissionData)=>{
+  if(!window.__fbReady||!deadlineId)return false;
+  try{
+    const k=_fbKey(teacherName);
+    await window.__fbDB.ref(`${FB_PATH}/dlSubmissions_v2/${deadlineId}/${k}`).set(submissionData);
+    return true;
+  }catch(err){console.error("FB dlSubmission save:",err);return false;}
+};
+const fbDlSubmissionsV2ToState=(v2obj)=>{
+  if(!v2obj)return null;
+  const state={};
+  Object.entries(v2obj).forEach(([deadlineId,teacherMap])=>{
+    state[deadlineId]={};
+    TEACHERS.forEach(t=>{
+      const k=_fbKey(t);
+      if(teacherMap&&teacherMap[k]!==undefined)state[deadlineId][t]=teacherMap[k];
+    });
+  });
+  return state;
+};
+
+// ── obsData.peerObservations: এটি একটি global array (per-teacher নয়) — প্রতিটি observation আলাদা path এ ──
+const fbSavePeerObservation=async(obsRecord)=>{
+  if(!window.__fbReady||!obsRecord?.id)return false;
+  try{
+    await window.__fbDB.ref(`${FB_PATH}/peerObservations_v2/${obsRecord.id}`).set(obsRecord);
+    return true;
+  }catch(err){console.error("FB peerObservation save:",err);return false;}
+};
+const fbDeletePeerObservation=async(id)=>{
+  if(!window.__fbReady||!id)return false;
+  try{
+    await window.__fbDB.ref(`${FB_PATH}/peerObservations_v2/${id}`).remove();
+    return true;
+  }catch(err){console.error("FB peerObservation delete:",err);return false;}
+};
+const fbPeerObservationsV2ToArray=(v2obj)=>{
+  if(!v2obj)return null;
+  return Object.values(v2obj);
+};
+
+// ── obsData: প্রতিটি শিক্ষকের পর্যবেক্ষণ ডেটা আলাদা path এ ──
+const fbSaveObsData=async(teacherName,obsForTeacher)=>{
+  if(!window.__fbReady)return false;
+  try{
+    const k=_fbKey(teacherName);
+    await window.__fbDB.ref(`${FB_PATH}/obsData_v2/${k}`).set(obsForTeacher);
+    return true;
+  }catch(err){console.error("FB obsData save:",err);return false;}
+};
+const fbObsDataV2ToState=(v2obj)=>{
+  if(!v2obj)return null;
+  const state={};
+  TEACHERS.forEach(t=>{
+    const k=_fbKey(t);
+    if(v2obj[k]!==undefined)state[t]=v2obj[k];
+  });
+  return state;
+};
+
+// ── studentProfiles: প্রতিটি শিক্ষার্থীর প্রোফাইল আলাদা path এ ──
+const fbSaveStudentProfile=async(studentKey,profileData)=>{
+  if(!window.__fbReady)return false;
+  try{
+    const k=_fbKey(studentKey);
+    await window.__fbDB.ref(`${FB_PATH}/studentProfiles_v2/${k}`).set(profileData);
+    return true;
+  }catch(err){console.error("FB studentProfile save:",err);return false;}
+};
+const fbStudentProfilesV2ToState=(v2obj,existingKeys)=>{
+  if(!v2obj)return null;
+  // studentProfiles এর key সাধারণত "নাম__শ্রেণি" ধরনের — সরাসরি object ফিরিয়ে দিচ্ছি কারণ key sanitize করার পরও unique থাকে
+  return v2obj;
+};
+
+// ── জেনেরিক merge helper: পুরনো ও নতুন object merge (নতুনটা জেতে যদি দুটোতেই থাকে) ──
+const mergeObjState=(oldObj,newObj)=>{
+  if(!newObj)return oldObj||{};
+  if(!oldObj)return newObj;
+  return{...oldObj,...newObj};
+};
+
 const fbLoad=async()=>{
   if(!window.__fbReady)return null;
   try{const s=await window.__fbDB.ref(FB_PATH).once("value");return s.exists()?s.val():null;}catch(e){return null;}
@@ -449,6 +576,7 @@ function BulkAttendance({obsData,setObsData}){
         const filtered=existing.filter(a=>a.isoDate!==attDate);
         const newEntry={date:dateLabel,isoDate:attDate,status:statuses[t]};
         updated[t]={...(updated[t]||{}),attendance:[...filtered,newEntry]};
+        fbSaveObsData(t,updated[t]); // granular Firebase write — প্রতি শিক্ষক আলাদাভাবে
       });
       return updated;
     });
@@ -594,7 +722,11 @@ function TeacherObservation({obsData,setObsData}){
   const obs=obsData[selTeacher]||{attendance:[],inspections:[],syllabus:[],trainings:[],feedback:[]};
 
   const updateObs=(field,val)=>{
-    setObsData(prev=>({...prev,[selTeacher]:{...(prev[selTeacher]||{}), [field]:val}}));
+    setObsData(prev=>{
+      const updated={...(prev[selTeacher]||{}), [field]:val};
+      fbSaveObsData(selTeacher,updated); // granular Firebase write
+      return{...prev,[selTeacher]:updated};
+    });
   };
 
   /* সিলেবাস কভারেজ */
@@ -1023,12 +1155,14 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
       totalScore,
       isAdminObs:isAdmin,
     };
+    fbSavePeerObservation(rec); // granular Firebase write
     setObsData(prev=>({...prev,peerObservations:[...(prev.peerObservations||[]),rec]}));
     setShowForm(false);
   };
 
   const deleteObservation=(id)=>{
     if(!window.confirm("এই পর্যবেক্ষণ রেকর্ডটি মুছে ফেলতে চান?"))return;
+    fbDeletePeerObservation(id); // granular Firebase delete
     setObsData(prev=>({...prev,peerObservations:(prev.peerObservations||[]).filter(o=>o.id!==id)}));
   };
 
@@ -2978,7 +3112,11 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
   const profile=studentProfiles?.[name]||{};
   const updateProfile=(field,val)=>{
     if(!setStudentProfiles)return;
-    setStudentProfiles(prev=>({...prev,[name]:{...(prev[name]||{}),[field]:val}}));
+    setStudentProfiles(prev=>{
+      const updated={...(prev[name]||{}),[field]:val};
+      fbSaveStudentProfile(name,updated); // granular Firebase write
+      return{...prev,[name]:updated};
+    });
   };
   const srP=sr.filter(r=>!r.absent);
   const pass=srP.filter(r=>r.marks>=(r.passMarks||33)).length;
@@ -4223,10 +4361,14 @@ function Teachers({results,lessonPlans,obsData={},teacherSubjects={},setTeacherS
       const next=exists
         ?(isObj?cur.filter(x=>!(typeof x==="object"&&x.cls===item.cls&&x.sub===item.sub)):cur.filter(x=>x!==item))
         :[...cur,item];
+      fbSaveTeacherSubject(mapTeacher,next); // granular Firebase write — race condition নিরাপদ
       return{...prev,[mapTeacher]:next};
     });
   };
-  const clearMapping=()=>setTeacherSubjects(prev=>({...prev,[mapTeacher]:[]}));
+  const clearMapping=()=>setTeacherSubjects(prev=>{
+    fbSaveTeacherSubject(mapTeacher,[]);
+    return{...prev,[mapTeacher]:[]};
+  });
   const mapSelected=teacherSubjects[mapTeacher]||[];
 
   // প্রতিটি শিক্ষকের কাজের চাপ হিসাব
@@ -7845,6 +7987,7 @@ function UpcomingEvents({deadlines, setDeadlines, dlSubmissions, setDlSubmission
         _eventId:evt.id,
         createdAt:evt.createdAt
       }));
+      newDls.forEach(d=>fbSaveDeadline(d)); // granular Firebase write
       return [...filtered,...newDls];
     });
   };
@@ -7852,7 +7995,11 @@ function UpcomingEvents({deadlines, setDeadlines, dlSubmissions, setDlSubmission
   const deleteEvent=(id)=>{
     if(!window.confirm("এই ইভেন্টটি মুছে ফেলবেন? সব কাজের ডেটাও মুছে যাবে।"))return;
     setEvents(prev=>prev.filter(e=>e.id!==id));
-    setDeadlines(prev=>prev.filter(d=>d._eventId!==id));
+    setDeadlines(prev=>{
+      const toDelete=prev.filter(d=>d._eventId===id);
+      toDelete.forEach(d=>fbDeleteDeadline(d.id)); // granular Firebase delete
+      return prev.filter(d=>d._eventId!==id);
+    });
   };
 
   return(<div>
@@ -8154,23 +8301,30 @@ function DeadlineModule({deadlines,setDeadlines,dlSubmissions,setDlSubmissions,c
       createdAt:new Date().toISOString(),
       createdBy:currentUser
     };
+    fbSaveDeadline(newDl); // granular Firebase write
     setDeadlines(prev=>[...prev,newDl]);
     setForm({title:"",type:"lesson_plan",dueDate:"",note:"",teachers:[]});
     setShowForm(false);
   };
 
   const markDone=(dlId,teacher)=>{
-    setDlSubmissions(prev=>({...prev,[dlId]:{...(prev[dlId]||{}),[teacher]:"done"}}));
+    setDlSubmissions(prev=>{
+      const updated={...(prev[dlId]||{}),[teacher]:"done"};
+      fbSaveDlSubmission(dlId,teacher,"done"); // granular Firebase write
+      return{...prev,[dlId]:updated};
+    });
   };
   const markUndone=(dlId,teacher)=>{
     setDlSubmissions(prev=>{
       const copy={...prev,[dlId]:{...(prev[dlId]||{})}};
       delete copy[dlId][teacher];
+      fbSaveDlSubmission(dlId,teacher,null); // granular Firebase write (null = মুছে দেওয়া)
       return copy;
     });
   };
   const deleteDl=(id)=>{
     if(!window.confirm("এই ডেডলাইনটি মুছে ফেলবেন?"))return;
+    fbDeleteDeadline(id); // granular Firebase delete
     setDeadlines(prev=>prev.filter(d=>d.id!==id));
     setDlSubmissions(prev=>{const c={...prev};delete c[id];return c;});
   };
@@ -11127,13 +11281,36 @@ function App(){
           if(data.routineSubtasks!==undefined)setRoutineSubtasks(data.routineSubtasks);
           if(data.lastCarryDate!==undefined)setLastCarryDate(data.lastCarryDate);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
-          if(data.obsData!==undefined)setObsData(data.obsData);
-          if(data.deadlines!==undefined)setDeadlines(data.deadlines);
-          if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
-          if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
-          if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
           if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
-          if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+          // granular v2 ডেটা — race-condition প্রুফ মার্জ
+          const obsV2=data.obsData_v2?fbObsDataV2ToState(data.obsData_v2):null;
+          const peerObsV2=data.peerObservations_v2?fbPeerObservationsV2ToArray(data.peerObservations_v2):null;
+          if(obsV2||peerObsV2){
+            setObsData(prev=>{
+              const base=mergeObjState(data.obsData,obsV2||{});
+              if(peerObsV2)base.peerObservations=peerObsV2;
+              return base;
+            });
+          }else if(data.obsData!==undefined)setObsData(data.obsData);
+
+          const dlV2=data.deadlines_v2?fbDeadlinesV2ToArray(data.deadlines_v2):null;
+          if(dlV2)setDeadlines(dlV2);
+          else if(data.deadlines!==undefined)setDeadlines(data.deadlines);
+
+          const dlSubV2=data.dlSubmissions_v2?fbDlSubmissionsV2ToState(data.dlSubmissions_v2):null;
+          if(dlSubV2)setDlSubmissions(prev=>mergeObjState(data.dlSubmissions,dlSubV2));
+          else if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
+
+          const tsV2=data.teacherSubjects_v2?fbTeacherSubjectsV2ToState(data.teacherSubjects_v2):null;
+          if(tsV2)setTeacherSubjects(prev=>mergeObjState(data.teacherSubjects,tsV2));
+          else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
+
+          if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+
+          const spV2=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
+          if(spV2)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2));
+          else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+
           if(data.sscData!==undefined)setSscData(data.sscData);
           HAISDB.setSync("hais_data_v3",data);
           window.__fbPreloadData=null; // মেমোরি মুক্ত করো
@@ -11162,13 +11339,35 @@ function App(){
           if(data.routineSubtasks!==undefined)setRoutineSubtasks(data.routineSubtasks);
           if(data.lastCarryDate!==undefined)setLastCarryDate(data.lastCarryDate);
           if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
-          if(data.obsData!==undefined)setObsData(data.obsData);
-          if(data.deadlines!==undefined)setDeadlines(data.deadlines);
-          if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
-          if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
-          if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
           if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
-          if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+          const obsV2b=data.obsData_v2?fbObsDataV2ToState(data.obsData_v2):null;
+          const peerObsV2b=data.peerObservations_v2?fbPeerObservationsV2ToArray(data.peerObservations_v2):null;
+          if(obsV2b||peerObsV2b){
+            setObsData(prev=>{
+              const base=mergeObjState(data.obsData,obsV2b||{});
+              if(peerObsV2b)base.peerObservations=peerObsV2b;
+              return base;
+            });
+          }else if(data.obsData!==undefined)setObsData(data.obsData);
+
+          const dlV2b=data.deadlines_v2?fbDeadlinesV2ToArray(data.deadlines_v2):null;
+          if(dlV2b)setDeadlines(dlV2b);
+          else if(data.deadlines!==undefined)setDeadlines(data.deadlines);
+
+          const dlSubV2b=data.dlSubmissions_v2?fbDlSubmissionsV2ToState(data.dlSubmissions_v2):null;
+          if(dlSubV2b)setDlSubmissions(prev=>mergeObjState(data.dlSubmissions,dlSubV2b));
+          else if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
+
+          const tsV2b=data.teacherSubjects_v2?fbTeacherSubjectsV2ToState(data.teacherSubjects_v2):null;
+          if(tsV2b)setTeacherSubjects(prev=>mergeObjState(data.teacherSubjects,tsV2b));
+          else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
+
+          if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+
+          const spV2b=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
+          if(spV2b)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2b));
+          else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+
           if(data.sscData!==undefined)setSscData(data.sscData);
           HAISDB.setSync("hais_data_v3",data);
           setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -11190,13 +11389,35 @@ function App(){
       if(mergedResults!==undefined)setResults(mergedResults);
       if(data.examSchedule!==undefined)setExamSchedule(data.examSchedule);
       if(data.lessonPlans!==undefined)setLessonPlans(data.lessonPlans);
-      if(data.obsData!==undefined)setObsData(data.obsData);
-      if(data.deadlines!==undefined)setDeadlines(data.deadlines);
-      if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
-      if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
-      if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
       if(data.customTeachers!==undefined){setCustomTeachers(data.customTeachers);TEACHERS=[...DEFAULT_TEACHERS,...data.customTeachers];}
-      if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+      const obsV2c=data.obsData_v2?fbObsDataV2ToState(data.obsData_v2):null;
+      const peerObsV2c=data.peerObservations_v2?fbPeerObservationsV2ToArray(data.peerObservations_v2):null;
+      if(obsV2c||peerObsV2c){
+        setObsData(prev=>{
+          const base=mergeObjState(data.obsData,obsV2c||{});
+          if(peerObsV2c)base.peerObservations=peerObsV2c;
+          return base;
+        });
+      }else if(data.obsData!==undefined)setObsData(data.obsData);
+
+      const dlV2c=data.deadlines_v2?fbDeadlinesV2ToArray(data.deadlines_v2):null;
+      if(dlV2c)setDeadlines(dlV2c);
+      else if(data.deadlines!==undefined)setDeadlines(data.deadlines);
+
+      const dlSubV2c=data.dlSubmissions_v2?fbDlSubmissionsV2ToState(data.dlSubmissions_v2):null;
+      if(dlSubV2c)setDlSubmissions(prev=>mergeObjState(data.dlSubmissions,dlSubV2c));
+      else if(data.dlSubmissions!==undefined)setDlSubmissions(data.dlSubmissions);
+
+      const tsV2c=data.teacherSubjects_v2?fbTeacherSubjectsV2ToState(data.teacherSubjects_v2):null;
+      if(tsV2c)setTeacherSubjects(prev=>mergeObjState(data.teacherSubjects,tsV2c));
+      else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
+
+      if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+
+      const spV2c=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
+      if(spV2c)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2c));
+      else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+
       if(data.sscData!==undefined)setSscData(data.sscData);
       HAISDB.setSync("hais_data_v3",data);
       setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -11236,9 +11457,11 @@ function App(){
     // কোন কোন top-level field পরিবর্তিত হয়েছে
     const prev=prevValuesRef.current;
     // results বাদ দাও — এটা ExamEntry থেকে granular write হয়, এখানে পাঠালে race condition হবে
+    // granular write হয় এমন field গুলো bulk auto-save থেকে বাদ — race condition প্রতিরোধ
+    const GRANULAR_FIELDS=["results","teacherSubjects","deadlines","dlSubmissions","obsData","studentProfiles"];
     const changedKeys=!prev
-      ?Object.keys(current).filter(k=>k!=="results")
-      :Object.keys(current).filter(k=>k!=="results"&&current[k]!==prev[k]);
+      ?Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k))
+      :Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k)&&current[k]!==prev[k]);
     prevValuesRef.current=current;
     if(changedKeys.length===0)return;
     // Firebase-এ 1.5s debounce — শুধু পরিবর্তিত field পাঠানো (results ছাড়া)
