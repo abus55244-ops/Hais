@@ -361,6 +361,24 @@ const fbStudentProfilesV2ToState=(v2obj,existingKeys)=>{
   return v2obj;
 };
 
+// ── weeklyTargets: প্রতিটি সাপ্তাহিক টার্গেট আলাদা path এ (id ভিত্তিক) — এসএসসি ২০২৭ ব্যাচ ──
+const fbSaveWeeklyTarget=async(target)=>{
+  if(!window.__fbReady||!target?.id)return false;
+  try{await window.__fbDB.ref(`${FB_PATH}/weeklyTargets_v2/${target.id}`).set(target);return true;}
+  catch(err){console.error("FB weeklyTarget save:",err);return false;}
+};
+const fbDeleteWeeklyTarget=async(id)=>{
+  if(!window.__fbReady||!id)return false;
+  try{await window.__fbDB.ref(`${FB_PATH}/weeklyTargets_v2/${id}`).remove();return true;}
+  catch(err){console.error("FB weeklyTarget delete:",err);return false;}
+};
+// ── targetFulfillment: প্রতিটি শিক্ষার্থীর প্রতিটি টার্গেট পূরণের রেকর্ড আলাদা path এ ──
+const fbSaveFulfillment=async(rec)=>{
+  if(!window.__fbReady||!rec?.id)return false;
+  try{await window.__fbDB.ref(`${FB_PATH}/targetFulfillment_v2/${rec.id}`).set(rec);return true;}
+  catch(err){console.error("FB fulfillment save:",err);return false;}
+};
+
 // ── জেনেরিক merge helper: পুরনো ও নতুন object merge (নতুনটা জেতে যদি দুটোতেই থাকে) ──
 const mergeObjState=(oldObj,newObj)=>{
   if(!newObj)return oldObj||{};
@@ -9008,6 +9026,7 @@ const PAGES=[
   {id:"teachers",label:"👩‍🏫 শিক্ষক",adminOnly:true},
   {id:"exam",label:"📝 পরীক্ষা",adminOnly:false},
   {id:"results",label:"📋 ফলাফল",adminOnly:false},
+  {id:"ssctarget",label:"🎯 SSC ২০২৭ টার্গেট",adminOnly:false},
   {id:"lesson",label:"📚 পাঠ পরিকল্পনা",adminOnly:false},
   {id:"observe",label:"👁 পর্যবেক্ষণ",adminOnly:true},
   {id:"peer_obs",label:"🔭 ক্লাস পর্যবেক্ষণ",adminOnly:false},
@@ -9017,6 +9036,329 @@ const PAGES=[
   {id:"whitelist",label:"📋 অনুমোদিত Email",adminOnly:true},
   {id:"coord",label:"👑 ইনচার্জ",adminOnly:true}
 ];
+
+/* ══════════════════════════════════════════════════════════════════════
+   SSC ২০২৭ ব্যাচ — সাপ্তাহিক টার্গেট নির্ধারণ, পূরণ ট্র্যাকিং ও ফলাফল পূর্বাভাস
+   বর্তমান দশম শ্রেণির (X) শিক্ষার্থীরাই ২০২৭ সালের এসএসসি পরীক্ষার্থী
+   ══════════════════════════════════════════════════════════════════════ */
+const SSC_CLASS="X";
+
+const STUDY_TIPS={
+  "গণিত":"প্রতিদিন অন্তত ১৫-২০টি অংক চর্চা করুন এবং ভুল হওয়া অংকগুলো আলাদা খাতায় টুকে রেখে বারবার পর্যালোচনা করুন।",
+  "উচ্চতর গণিত":"সূত্র মুখস্থ না করে প্রমাণসহ বুঝে অনুশীলন করুন এবং নিয়মিত পুরনো বোর্ড প্রশ্ন সমাধান করুন।",
+  "পদার্থবিজ্ঞান":"প্রতিটি অধ্যায়ের সূত্র ও একক ভালোভাবে আয়ত্ত করে নিয়মিত সৃজনশীল প্রশ্নের সমাধান অনুশীলন করুন।",
+  "রসায়ন":"বিক্রিয়া ও সমীকরণ বারবার লিখে অনুশীলন করুন এবং দৈনন্দিন উদাহরণের সাথে যুক্ত করে মনে রাখুন।",
+  "জীববিজ্ঞান":"চিত্রসহ পড়াশোনা করুন এবং প্রতিটি অধ্যায়ের পর নিজে নিজে সংক্ষিপ্ত প্রশ্নোত্তর তৈরি করে যাচাই করুন।",
+  "বাংলা প্রথম পত্র":"গল্প-কবিতার মূলভাব ও প্রশ্নোত্তর বারবার লিখে অনুশীলন করুন এবং সৃজনশীল প্রশ্নের কাঠামো অনুসরণ করুন।",
+  "বাংলা দ্বিতীয় পত্র":"ব্যাকরণের নিয়মগুলো উদাহরণসহ চর্চা করুন এবং নিয়মিত রচনা ও পত্র লেখার অনুশীলন করুন।",
+  "English প্রথম পত্র":"প্রতিদিন Seen ও Unseen passage পড়ার অভ্যাস করুন এবং প্রশ্নের ধরন অনুযায়ী উত্তর লেখার কৌশল রপ্ত করুন।",
+  "English দ্বিতীয় পত্র":"Grammar এর নিয়মগুলো নিয়মিত অনুশীলন করুন এবং Composition লেখার অভ্যাস বাড়ান।",
+  "তথ্য ও যোগাযোগ প্রযুক্তি":"তাত্ত্বিক অংশের পাশাপাশি ব্যবহারিক ধারণাগুলো উদাহরণসহ বুঝে পড়ুন।",
+  "ইতিহাস":"সময়রেখা (timeline) তৈরি করে ঘটনাগুলো সাজিয়ে মনে রাখার চেষ্টা করুন।",
+  "ভূগোল":"মানচিত্র দেখে দেখে পড়াশোনা করুন, এতে বিষয়গুলো দীর্ঘস্থায়ীভাবে মনে থাকবে।",
+  "অর্থনীতি":"ধারণাগুলো বাস্তব উদাহরণের সাথে মিলিয়ে বোঝার চেষ্টা করুন, শুধু মুখস্থ নয়।",
+  "হিসাববিজ্ঞান":"নিয়মিত হিসাবের সমস্যা সমাধান অনুশীলন করুন, শুধু পড়ে মুখস্থ করলে হবে না।",
+  "ব্যবসায় উদ্যোগ":"ধারণাগুলো বাস্তব ব্যবসায়িক উদাহরণের সাথে মিলিয়ে পড়ুন।",
+  "ফিনান্স ও ব্যাংকিং":"হিসাব-নির্ভর অংশগুলো নিয়মিত অনুশীলন করুন এবং সংজ্ঞাগুলো নিজের ভাষায় লিখে অনুশীলন করুন।",
+  "বাংলাদেশ ও বিশ্বপরিচয়":"গুরুত্বপূর্ণ তথ্য ও সাল আলাদা নোটে টুকে বারবার পর্যালোচনা করুন।",
+  "কৃষি শিক্ষা":"ব্যবহারিক উদাহরণসহ পড়ুন এবং চিত্র দেখে দেখে মনে রাখার চেষ্টা করুন।",
+  "ধর্ম":"মূল বিষয়বস্তু বুঝে পড়ুন এবং উদাহরণসহ ব্যাখ্যা করার অভ্যাস করুন।"
+};
+const DEFAULT_TIP="প্রতিদিন নির্দিষ্ট সময় ধরে এই বিষয়ের পুরনো প্রশ্ন সমাধান করুন এবং কোথায় ভুল হচ্ছে তা শিক্ষকের সাহায্যে চিহ্নিত করে সংশোধন করুন।";
+
+const sscScale=(pct)=>{
+  if(pct>=80)return["A+",C.gr];if(pct>=70)return["A",C.te];if(pct>=60)return["A-",C.te];
+  if(pct>=50)return["B",C.am];if(pct>=40)return["C",C.am];if(pct>=33)return["D",C.co];
+  return["F",C.re];
+};
+
+function SSCTarget({results,STUDENTS,currentUser,isAdmin,weeklyTargets,setWeeklyTargets,targetFulfillments,setTargetFulfillments}){
+  STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+  const students=STUDENTS[SSC_CLASS]||[];
+  const subjects=SUBJECTS_BY_CLASS[SSC_CLASS]||[];
+  const [subTab,setSubTab]=useState("set"); // set | track | predict
+  const [selSubject,setSelSubject]=useState(null);
+  const [selWeek,setSelWeek]=useState(null);
+  const [msg,setMsg]=useState("");
+
+  /* ── সাপ্তাহিক টার্গেট সংরক্ষণ/মুছা ── */
+  const realTargets=useMemo(()=>Object.values(weeklyTargets||{}).filter(t=>t&&t.subject&&!t.isWeekMeta),[weeklyTargets]);
+  const weekCountOf=(subject)=>{
+    const meta=weeklyTargets[`wkcount__${_fbKey(subject)}`];
+    return Math.max(10,meta?.count||10);
+  };
+  const addWeek=(subject)=>{
+    const id=`wkcount__${_fbKey(subject)}`;
+    const cur=weekCountOf(subject);
+    const obj={id,subject,isWeekMeta:true,count:cur+1};
+    setWeeklyTargets(prev=>({...prev,[id]:obj}));
+    fbSaveWeeklyTarget(obj);
+  };
+  const targetsFor=(subject,week)=>realTargets.filter(t=>t.subject===subject&&t.week===week);
+  const saveTarget=(obj)=>{
+    setWeeklyTargets(prev=>({...prev,[obj.id]:obj}));
+    fbSaveWeeklyTarget(obj);
+    setMsg("✅ টার্গেট সংরক্ষিত হয়েছে");setTimeout(()=>setMsg(""),1800);
+  };
+  const deleteTarget=(id)=>{
+    if(!window.confirm("এই টার্গেটটি মুছে ফেলতে চান?"))return;
+    setWeeklyTargets(prev=>{const n={...prev};delete n[id];return n;});
+    fbDeleteWeeklyTarget(id);
+  };
+
+  /* ── পূরণ রেকর্ড সংরক্ষণ ── */
+  const fkey=(targetId,student)=>`${targetId}__${_fbKey(student)}`;
+  const saveFulfillment=(targetId,student,patch)=>{
+    const id=fkey(targetId,student);
+    const existing=targetFulfillments[id]||{};
+    const rec={id,targetId,student,cls:SSC_CLASS,status:"none",percent:0,problem:"",...existing,...patch,notedBy:currentUser,notedAt:new Date().toISOString()};
+    setTargetFulfillments(prev=>({...prev,[id]:rec}));
+    fbSaveFulfillment(rec);
+  };
+
+  /* ════════ ১) টার্গেট নির্ধারণ ট্যাব ════════ */
+  function TargetSetView(){
+    const [text,setText]=useState("");
+    const [scope,setScope]=useState("all");
+    const [custom,setCustom]=useState([]);
+    const [editing,setEditing]=useState(null);
+
+    if(!selSubject){
+      return(<div>
+        <H3>বিষয় নির্বাচন করুন</H3>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
+          {subjects.map(s=>{
+            const cnt=realTargets.filter(t=>t.subject===s).length;
+            return(<Card key={s} onClick={()=>setSelSubject(s)} style={{cursor:"pointer",textAlign:"center",padding:"14px 8px"}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.pu}}>{s}</div>
+              <div style={{fontSize:11,color:C.mu,marginTop:4}}>{cnt} টি টার্গেট</div>
+            </Card>);
+          })}
+        </div>
+      </div>);
+    }
+    if(!selWeek){
+      const wc=weekCountOf(selSubject);
+      const weeks=Array.from({length:wc},(_,i)=>i+1);
+      return(<div>
+        <button onClick={()=>setSelSubject(null)} style={{marginBottom:10,background:"none",border:"none",color:C.pu,cursor:"pointer",fontSize:13}}>← বিষয় তালিকায় ফিরুন</button>
+        <H3>{selSubject} — সপ্তাহ নির্বাচন করুন</H3>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:8}}>
+          {weeks.map(w=>{
+            const cnt=targetsFor(selSubject,w).length;
+            return(<Card key={w} onClick={()=>setSelWeek(w)} style={{cursor:"pointer",textAlign:"center",padding:"12px 6px",borderColor:cnt?C.pu+"55":C.bd}}>
+              <div style={{fontWeight:700,color:C.pu}}>সপ্তাহ {w}</div>
+              <div style={{fontSize:10,color:C.mu,marginTop:2}}>{cnt?`${cnt} টি টার্গেট`:"খালি"}</div>
+            </Card>);
+          })}
+          <Card onClick={()=>addWeek(selSubject)} style={{cursor:"pointer",textAlign:"center",padding:"12px 6px",background:C.puL}}>
+            <div style={{fontWeight:700,color:C.pu}}>+ নতুন সপ্তাহ</div>
+          </Card>
+        </div>
+      </div>);
+    }
+    const wTargets=targetsFor(selSubject,selWeek);
+    const startEdit=(t)=>{setEditing(t.id);setText(t.text);setScope(t.scope);setCustom(t.students||[]);};
+    const resetForm=()=>{setEditing(null);setText("");setScope("all");setCustom([]);};
+    const submit=()=>{
+      if(!text.trim()){setMsg("⚠️ টার্গেটের বিবরণ লিখুন");setTimeout(()=>setMsg(""),1800);return;}
+      if(scope==="custom"&&custom.length===0){setMsg("⚠️ অন্তত একজন শিক্ষার্থী নির্বাচন করুন");setTimeout(()=>setMsg(""),1800);return;}
+      const id=editing||`tgt_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      saveTarget({id,subject:selSubject,week:selWeek,cls:SSC_CLASS,text:text.trim(),scope,students:scope==="custom"?custom:[],createdBy:currentUser,createdAt:new Date().toISOString()});
+      resetForm();
+    };
+    const toggleCustom=(name)=>setCustom(p=>p.includes(name)?p.filter(n=>n!==name):[...p,name]);
+
+    return(<div>
+      <button onClick={()=>setSelWeek(null)} style={{marginBottom:10,background:"none",border:"none",color:C.pu,cursor:"pointer",fontSize:13}}>← সপ্তাহ তালিকায় ফিরুন</button>
+      <H3>{selSubject} — সপ্তাহ {selWeek} এর টার্গেট</H3>
+      {wTargets.length===0&&<div style={{color:C.mu,fontSize:12,marginBottom:10}}>এই সপ্তাহে এখনো কোনো টার্গেট যুক্ত করা হয়নি।</div>}
+      {wTargets.map(t=>(
+        <Card key={t.id} style={{borderLeft:`4px solid ${C.pu}`}}>
+          <div style={{fontSize:13,marginBottom:6,whiteSpace:"pre-wrap"}}>{t.text}</div>
+          <div style={{fontSize:11,color:C.mu}}>
+            👥 {t.scope==="all"?`সকল শিক্ষার্থী (${students.length} জন)`:`নির্বাচিত ${(t.students||[]).length} জন: ${(t.students||[]).join(", ")}`}
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={()=>startEdit(t)} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.bd}`,background:"#fff",cursor:"pointer"}}>✏️ এডিট</button>
+            <button onClick={()=>deleteTarget(t.id)} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.re}40`,background:C.reL,color:C.re,cursor:"pointer"}}>🗑️ মুছুন</button>
+          </div>
+        </Card>
+      ))}
+      <Card style={{background:C.puL}}>
+        <H3>{editing?"টার্গেট সম্পাদনা করুন":"নতুন টার্গেট লিখুন"}</H3>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="এই সপ্তাহের টার্গেট লিখুন..." rows={3} style={{width:"100%",padding:8,borderRadius:8,border:`1px solid ${C.bd}`,fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>এই টার্গেট কাদের জন্য?</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <button onClick={()=>setScope("all")} style={{flex:1,padding:8,borderRadius:8,border:`1px solid ${scope==="all"?C.pu:C.bd}`,background:scope==="all"?C.pu:"#fff",color:scope==="all"?"#fff":C.tx,cursor:"pointer",fontSize:12,fontWeight:700}}>সকল শিক্ষার্থী</button>
+          <button onClick={()=>setScope("custom")} style={{flex:1,padding:8,borderRadius:8,border:`1px solid ${scope==="custom"?C.pu:C.bd}`,background:scope==="custom"?C.pu:"#fff",color:scope==="custom"?"#fff":C.tx,cursor:"pointer",fontSize:12,fontWeight:700}}>নির্দিষ্ট শিক্ষার্থী</button>
+        </div>
+        {scope==="custom"&&(
+          <div style={{maxHeight:180,overflowY:"auto",background:"#fff",borderRadius:8,padding:8,marginBottom:10,border:`1px solid ${C.bd}`}}>
+            {students.map(n=>(
+              <label key={n} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,padding:"3px 0",cursor:"pointer"}}>
+                <input type="checkbox" checked={custom.includes(n)} onChange={()=>toggleCustom(n)}/>{n}
+              </label>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={submit} style={{flex:1,padding:10,borderRadius:8,border:"none",background:C.pu,color:"#fff",fontWeight:700,cursor:"pointer"}}>{editing?"আপডেট করুন":"টার্গেট সংরক্ষণ করুন"}</button>
+          {editing&&<button onClick={resetForm} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.bd}`,background:"#fff",cursor:"pointer"}}>বাতিল</button>}
+        </div>
+      </Card>
+    </div>);
+  }
+
+  /* ════════ ২) পূরণ ট্র্যাকিং ট্যাব ════════ */
+  function TrackView(){
+    const [tSub,setTSub]=useState(subjects[0]);
+    const [tWeek,setTWeek]=useState(1);
+    const wc=weekCountOf(tSub);
+    const wTargets=targetsFor(tSub,tWeek);
+    const applicable=(t)=>t.scope==="all"?students:(t.students||[]);
+    const statusLabel={complete:["✅ সম্পূর্ণ",C.gr],partial:["🟡 আংশিক",C.am],none:["❌ অপূর্ণ",C.re]};
+
+    return(<div>
+      <H3>টার্গেট পূরণ ট্র্যাকিং</H3>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <select value={tSub} onChange={e=>{setTSub(e.target.value);setTWeek(1);}} style={{padding:8,borderRadius:8,border:`1px solid ${C.bd}`,fontSize:13}}>
+          {subjects.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={tWeek} onChange={e=>setTWeek(parseInt(e.target.value))} style={{padding:8,borderRadius:8,border:`1px solid ${C.bd}`,fontSize:13}}>
+          {Array.from({length:wc},(_,i)=>i+1).map(w=><option key={w} value={w}>সপ্তাহ {w}</option>)}
+        </select>
+      </div>
+      {wTargets.length===0&&<div style={{color:C.mu,fontSize:12}}>এই বিষয় ও সপ্তাহে কোনো টার্গেট নেই। আগে "টার্গেট নির্ধারণ" ট্যাব থেকে যুক্ত করুন।</div>}
+      {wTargets.map(t=>(
+        <Card key={t.id}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{t.text}</div>
+          {applicable(t).map(name=>{
+            const rec=targetFulfillments[fkey(t.id,name)]||{status:"none",percent:0,problem:""};
+            return(<div key={name} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:`1px solid ${C.bd}`}}>
+              <div style={{flex:"1 1 140px",fontSize:12,fontWeight:600}}>{name}</div>
+              <select value={rec.status} onChange={e=>saveFulfillment(t.id,name,{status:e.target.value,percent:e.target.value==="complete"?100:e.target.value==="none"?0:rec.percent})} style={{fontSize:11,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.bd}`}}>
+                <option value="complete">✅ সম্পূর্ণ</option>
+                <option value="partial">🟡 আংশিক</option>
+                <option value="none">❌ অপূর্ণ</option>
+              </select>
+              {rec.status==="partial"&&(
+                <input type="number" min={0} max={100} value={rec.percent} onChange={e=>saveFulfillment(t.id,name,{percent:Math.max(0,Math.min(100,parseInt(e.target.value)||0))})} style={{width:60,fontSize:11,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.bd}`}} placeholder="%"/>
+              )}
+              <input value={rec.problem} onChange={e=>saveFulfillment(t.id,name,{problem:e.target.value})} placeholder="সমস্যা/মন্তব্য (ঐচ্ছিক)" style={{flex:"2 1 160px",fontSize:11,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.bd}`}}/>
+              {badge(statusLabel[rec.status][1],statusLabel[rec.status][0])}
+            </div>);
+          })}
+        </Card>
+      ))}
+    </div>);
+  }
+
+  /* ════════ ৩) সম্ভাব্য ফলাফল পূর্বাভাস ════════ */
+  function PredictView(){
+    const stats=useMemo(()=>{
+      return students.map(name=>{
+        const entries=(results[SSC_CLASS]||[]).filter(e=>e.name===name);
+        const examPct=entries.length?Math.round(entries.reduce((a,e)=>a+(e.marks/(e.fullMarks||100)*100),0)/entries.length):null;
+        const fRecs=Object.values(targetFulfillments).filter(r=>r.student===name&&r.cls===SSC_CLASS);
+        const fulfillPct=fRecs.length?Math.round(fRecs.reduce((a,r)=>a+(r.percent||0),0)/fRecs.length):null;
+        const combined=examPct!=null?(fulfillPct!=null?Math.round(examPct*0.6+fulfillPct*0.4):examPct):(fulfillPct||0);
+        const bySubject={};
+        entries.forEach(e=>{
+          if(!bySubject[e.subject])bySubject[e.subject]=[];
+          bySubject[e.subject].push(e.marks/(e.fullMarks||100)*100);
+        });
+        const weakSubjects=Object.entries(bySubject).map(([s,arr])=>({subject:s,avg:Math.round(arr.reduce((a,b)=>a+b,0)/arr.length)})).filter(x=>x.avg<50).sort((a,b)=>a.avg-b.avg);
+        return{name,examPct,fulfillPct,combined,weakSubjects};
+      }).sort((a,b)=>b.combined-a.combined);
+    },[results,targetFulfillments,students]);
+
+    return(<div>
+      <H3>সম্ভাব্য এসএসসি ফলাফল পূর্বাভাস</H3>
+      <div style={{fontSize:11,color:C.mu,marginBottom:12,background:C.puL,padding:10,borderRadius:8}}>
+        💡 পূর্বাভাস = পরীক্ষার গড় নম্বরের ৬০% + সাপ্তাহিক টার্গেট পূরণের হারের ৪০% (weighted)। গবেষণা অনুযায়ী নিয়মিত retrieval practice ও spaced repetition দুর্বল বিষয়ে উন্নতিতে সহায়ক।
+      </div>
+      {stats.map(s=>{
+        const[grade,gcolor]=sscScale(s.combined);
+        return(<Card key={s.name}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontWeight:700,fontSize:13}}>{s.name}</div>
+            {badge(gcolor,`সম্ভাব্য গ্রেড ${grade}`)}
+          </div>
+          <div style={{display:"flex",gap:14,fontSize:11,color:C.mu,marginBottom:6}}>
+            <span>পরীক্ষার গড়: {s.examPct!=null?`${s.examPct}%`:"তথ্য নেই"}</span>
+            <span>টার্গেট পূরণ: {s.fulfillPct!=null?`${s.fulfillPct}%`:"তথ্য নেই"}</span>
+            <span>সম্মিলিত স্কোর: {s.combined}%</span>
+          </div>
+          {s.weakSubjects.length>0&&(
+            <div style={{marginTop:6,borderTop:`1px solid ${C.bd}`,paddingTop:6}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.re,marginBottom:4}}>⚠️ দুর্বল বিষয় ও করণীয়:</div>
+              {s.weakSubjects.map(w=>(
+                <div key={w.subject} style={{fontSize:11,marginBottom:3}}>
+                  <b>{w.subject}</b> ({w.avg}%) — {STUDY_TIPS[w.subject]||DEFAULT_TIP}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>);
+      })}
+    </div>);
+  }
+
+  /* ── প্রিন্ট ফর্ম: একজন শিক্ষার্থীর সব সপ্তাহের টার্গেট ── */
+  const printStudentForm=(studentName)=>{
+    const applicable=t=>t.scope==="all"||((t.students||[]).includes(studentName));
+    const rows=realTargets.filter(applicable).sort((a,b)=>a.subject.localeCompare(b.subject)||a.week-b.week);
+    const today=new Date().toLocaleDateString("bn-BD");
+    const w=window.open("","_blank");
+    w.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>সাপ্তাহিক টার্গেট ফর্ম — ${studentName}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#f8f7ff;color:#1a1a2e;font-size:13px;padding:20px}
+.page{background:#fff;max-width:850px;margin:0 auto;padding:24px}
+h1{font-size:18px;color:#5344b5;margin-bottom:4px}
+.sub{font-size:11px;color:#6b6b8a;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}
+th{background:#5344b5;color:#fff;padding:7px 8px;text-align:left}
+td{padding:7px 8px;border-bottom:1px solid #eee;vertical-align:top}
+tr:nth-child(even) td{background:#faf9ff}
+.no-print{margin-bottom:16px}
+@media print{.no-print{display:none!important}}
+@page{margin:10mm;size:A4}
+</style></head><body><div class="page">
+<div class="no-print"><button onclick="window.print()" style="padding:9px 20px;background:#5344b5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">🖨️ প্রিন্ট / PDF সেভ করুন</button></div>
+<h1>🏫 Heritage Public School — সাপ্তাহিক টার্গেট ফর্ম</h1>
+<div class="sub">শিক্ষার্থী: <b>${studentName}</b> | শ্রেণি: দশম (SSC ২০২৭ ব্যাচ) | তারিখ: ${today}</div>
+<table><thead><tr><th>বিষয়</th><th>সপ্তাহ</th><th>টার্গেট</th><th>পূরণের অবস্থা</th><th>মন্তব্য</th></tr></thead><tbody>
+${rows.map(t=>{
+  const rec=targetFulfillments[fkey(t.id,studentName)];
+  const statusTxt=rec?(rec.status==="complete"?"✅ সম্পূর্ণ":rec.status==="partial"?`🟡 আংশিক (${rec.percent}%)`:"❌ অপূর্ণ"):"⏳ এখনো নির্ধারণ হয়নি";
+  return `<tr><td>${t.subject}</td><td>সপ্তাহ ${t.week}</td><td>${t.text.replace(/</g,"&lt;")}</td><td>${statusTxt}</td><td>${rec?.problem||""}</td></tr>`;
+}).join("")}
+${rows.length===0?'<tr><td colspan="5" style="text-align:center;color:#999">কোনো টার্গেট পাওয়া যায়নি</td></tr>':""}
+</tbody></table>
+</div></body></html>`);
+    w.document.close();
+  };
+
+  return(<div>
+    <H2>🎯 SSC ২০২৭ ব্যাচ — সাপ্তাহিক টার্গেট ব্যবস্থাপনা</H2>
+    {msg&&<div style={{padding:8,borderRadius:8,background:C.puL,color:C.pu,fontSize:12,marginBottom:10,fontWeight:700}}>{msg}</div>}
+    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+      {[["set","📝 টার্গেট নির্ধারণ"],["track","📊 পূরণ ট্র্যাকিং"],["predict","🔮 সম্ভাব্য ফলাফল"]].map(([id,label])=>(
+        <button key={id} onClick={()=>{setSubTab(id);}} style={{padding:"8px 14px",borderRadius:18,border:`1px solid ${subTab===id?C.pu:C.bd}`,background:subTab===id?C.puL:"#fff",color:subTab===id?C.pu:C.mu,fontWeight:subTab===id?700:400,cursor:"pointer",fontSize:12}}>{label}</button>
+      ))}
+      <div style={{flex:1}}/>
+      <select onChange={e=>{if(e.target.value)printStudentForm(e.target.value);e.target.value="";}} style={{padding:"8px 10px",borderRadius:18,border:`1px solid ${C.bd}`,fontSize:12,color:C.mu}}>
+        <option value="">🖨️ ফর্ম প্রিন্ট করুন...</option>
+        {students.map(n=><option key={n} value={n}>{n}</option>)}
+      </select>
+    </div>
+    {subTab==="set"&&<TargetSetView/>}
+    {subTab==="track"&&<TrackView/>}
+    {subTab==="predict"&&<PredictView/>}
+  </div>);
+}
 
 function App(){
   // ── DB READY STATE — IndexedDB লোড শেষ হলে render শুরু ──
@@ -9066,6 +9408,9 @@ function App(){
   // পরীক্ষার সময়সূচি — approved lesson plan থেকে extract হয়
   // {id, teacher, cls, subject, date, dayLabel, weekLabel, examNote, status: "pending"|"taken"|"nottaken"|"excused"}
   const [examSchedule,setExamSchedule]=useState([]);
+  // SSC ২০২৭ ব্যাচ — সাপ্তাহিক টার্গেট ও তার পূরণ ট্র্যাকিং
+  const [weeklyTargets,setWeeklyTargets]=useState({});
+  const [targetFulfillments,setTargetFulfillments]=useState({});
   const [coordTaskStatus,setCoordTaskStatus]=useState(()=>{
     const s={};
     ALL_COORD_TASK_IDS.forEach(id=>{s[id]={done:false,doneAt:null};});
@@ -9102,6 +9447,8 @@ function App(){
         if(d.specialTasks)setSpecialTasks(d.specialTasks);
         if(d.routineSubtasks)setRoutineSubtasks(d.routineSubtasks);
         if(d.lastCarryDate)setLastCarryDate(d.lastCarryDate);
+        if(d.weeklyTargets)setWeeklyTargets(d.weeklyTargets);
+        if(d.targetFulfillments)setTargetFulfillments(d.targetFulfillments);
       }
       // শেষ export তারিখ
       const expTs=await HAISDB.get("hais_last_export_v1");
@@ -9194,6 +9541,10 @@ function App(){
           else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
 
           if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+          if(data.weeklyTargets_v2!==undefined)setWeeklyTargets(prev=>mergeObjState(data.weeklyTargets,data.weeklyTargets_v2));
+          else if(data.weeklyTargets!==undefined)setWeeklyTargets(data.weeklyTargets);
+          if(data.targetFulfillment_v2!==undefined)setTargetFulfillments(prev=>mergeObjState(data.targetFulfillments,data.targetFulfillment_v2));
+          else if(data.targetFulfillments!==undefined)setTargetFulfillments(data.targetFulfillments);
 
           const spV2=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2));
@@ -9250,6 +9601,10 @@ function App(){
           else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
 
           if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+          if(data.weeklyTargets_v2!==undefined)setWeeklyTargets(prev=>mergeObjState(data.weeklyTargets,data.weeklyTargets_v2));
+          else if(data.weeklyTargets!==undefined)setWeeklyTargets(data.weeklyTargets);
+          if(data.targetFulfillment_v2!==undefined)setTargetFulfillments(prev=>mergeObjState(data.targetFulfillments,data.targetFulfillment_v2));
+          else if(data.targetFulfillments!==undefined)setTargetFulfillments(data.targetFulfillments);
 
           const spV2b=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2b)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2b));
@@ -9299,6 +9654,10 @@ function App(){
       else if(data.teacherSubjects!==undefined)setTeacherSubjects(data.teacherSubjects);
 
       if(data.customStudents!==undefined)setCustomStudents(data.customStudents);
+      if(data.weeklyTargets_v2!==undefined)setWeeklyTargets(prev=>mergeObjState(data.weeklyTargets,data.weeklyTargets_v2));
+      else if(data.weeklyTargets!==undefined)setWeeklyTargets(data.weeklyTargets);
+      if(data.targetFulfillment_v2!==undefined)setTargetFulfillments(prev=>mergeObjState(data.targetFulfillments,data.targetFulfillment_v2));
+      else if(data.targetFulfillments!==undefined)setTargetFulfillments(data.targetFulfillments);
 
       const spV2c=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
       if(spV2c)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2c));
@@ -9317,7 +9676,7 @@ function App(){
     if(!dbReady||!fbLoaded)return;
     // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
     if(!fbApplyDoneRef.current)return;
-    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,examSchedule,dailyRoutine,meetingAgenda,specialTasks,routineSubtasks,lastCarryDate};
+    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,examSchedule,dailyRoutine,meetingAgenda,specialTasks,routineSubtasks,lastCarryDate,weeklyTargets,targetFulfillments};
     // remote থেকে আসা আপডেট — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
       prevValuesRef.current=current;
@@ -9343,7 +9702,7 @@ function App(){
     const prev=prevValuesRef.current;
     // results বাদ দাও — এটা ExamEntry থেকে granular write হয়, এখানে পাঠালে race condition হবে
     // granular write হয় এমন field গুলো bulk auto-save থেকে বাদ — race condition প্রতিরোধ
-    const GRANULAR_FIELDS=["results","teacherSubjects","deadlines","dlSubmissions","obsData","studentProfiles"];
+    const GRANULAR_FIELDS=["results","teacherSubjects","deadlines","dlSubmissions","obsData","studentProfiles","weeklyTargets","targetFulfillments"];
     const changedKeys=!prev
       ?Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k))
       :Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k)&&current[k]!==prev[k]);
@@ -9359,7 +9718,7 @@ function App(){
       else{setSaveError(true);setLastSaved(new Date());}
     },1500);
     return()=>clearTimeout(t);
-  },[results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,dbReady,fbLoaded]);
+  },[results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,studentProfiles,weeklyTargets,targetFulfillments,dbReady,fbLoaded]);
 
   const handlePageChange=(newPage)=>{
     setPage(newPage);
@@ -9749,6 +10108,7 @@ function App(){
       {page==="teachers" &&(currentUser===ADMIN_TEACHER?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
       {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS}/>}
+      {page==="ssctarget" &&<SSCTarget results={results} STUDENTS={STUDENTS} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} weeklyTargets={weeklyTargets} setWeeklyTargets={setWeeklyTargets} targetFulfillments={targetFulfillments} setTargetFulfillments={setTargetFulfillments}/>}
       {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
       {page==="observe"  &&(currentUser===ADMIN_TEACHER?<TeacherObservation obsData={obsData} setObsData={setObsData}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="peer_obs" &&<PeerObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={currentUser===ADMIN_TEACHER} STUDENTS={STUDENTS}/>}
