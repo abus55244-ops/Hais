@@ -9544,6 +9544,139 @@ function WeeklyTargetModal({students,targets,weekKey,weekLabel,onSave,onClose}){
   );
 }
 
+// ── Student-wise Subject Target Modal ──────────────────────
+function StudentSubjectTargetModal({student,dept,deptInfo,weekLabel,currentSubjects,onSave,onClose}){
+  const [form,setForm]=useState(currentSubjects||{});
+  const subjectList = dept&&SSC_DEPARTMENTS[dept] ? SSC_DEPARTMENTS[dept].subjects : SSC_COMMON_7;
+
+  const update=(subj,val)=>setForm(prev=>({...prev,[subj]:val}));
+  const handleSave=()=>{ onSave(form); onClose(); };
+
+  const handlePrint=()=>{
+    const win=window.open("","_blank");
+    if(!win)return;
+    const rows=subjectList.map(s=>`<tr><td style="padding:8px;border:1px solid #ccc;font-weight:700;width:40%">${s}</td><td style="padding:8px;border:1px solid #ccc">${(form[s]||"—").replace(/</g,"&lt;")}</td></tr>`).join("");
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${student} — সাপ্তাহিক বিষয়ভিত্তিক টার্গেট</title>
+    <style>
+      body{font-family:'Noto Sans Bengali','Hind Siliguri',Arial,sans-serif;padding:28px;color:#222}
+      h1{font-size:19px;margin:0 0 4px}
+      .sub{font-size:12px;color:#555;margin-bottom:18px}
+      table{width:100%;border-collapse:collapse;margin-top:8px}
+      th{background:#1B3A6B;color:#fff;padding:9px;text-align:left;font-size:13px}
+      td{font-size:13px;vertical-align:top}
+      tr:nth-child(even) td{background:#f7f7f7}
+      .ft{margin-top:24px;font-size:10px;color:#888;text-align:center;border-top:1px solid #ddd;padding-top:8px}
+      .pbtn{padding:8px 18px;background:#1B3A6B;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-bottom:14px}
+      @media print{.pbtn{display:none}body{padding:10px}}
+    </style></head><body>
+    <button class="pbtn" onclick="window.print()">🖨️ প্রিন্ট করুন (Ctrl+P)</button>
+    <h1>🎯 সাপ্তাহিক বিষয়ভিত্তিক টার্গেট — ${student}</h1>
+    <div class="sub">${weekLabel}${deptInfo?` &nbsp;·&nbsp; বিভাগ: ${deptInfo.label}`:""}</div>
+    <table><thead><tr><th>বিষয়</th><th>এই সপ্তাহের টার্গেট</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="ft">HAIS — Heritage Academic Intelligence System · SSC ২০২৭ ব্যাচ</div>
+    </body></html>`);
+    win.document.close();
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,overflowY:"auto",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 8px"}}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:520,boxShadow:"0 8px 40px rgba(0,0,0,0.18)"}}>
+        <div style={{background:"#6b21a8",borderRadius:"16px 16px 0 0",padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:14}}>📚 বিষয়ভিত্তিক টার্গেট — {student}</div>
+            <div style={{color:"rgba(255,255,255,0.75)",fontSize:11}}>{weekLabel}{deptInfo?` · ${deptInfo.label}`:""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:20,padding:"4px 10px",cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={{padding:"12px 16px"}}>
+          {!dept&&<div style={{fontSize:11,color:C.re,marginBottom:8,fontWeight:600}}>⚠️ এই ছাত্রের বিভাগ নির্বাচিত নেই — আপাতত সাধারণ ৭টি বিষয় দেখানো হচ্ছে। প্রোফাইলে গিয়ে বিভাগ নির্বাচন করুন।</div>}
+          <div style={{fontSize:11,color:C.mu,marginBottom:8}}>প্রতিটি বিষয়ে এই সপ্তাহের জন্য আলাদা টার্গেট লিখুন</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"50vh",overflowY:"auto"}}>
+            {subjectList.map(subj=>(
+              <div key={subj} style={{display:"flex",flexDirection:"column",gap:3}}>
+                <span style={{fontSize:11,fontWeight:700,color:C.tx}}>{subj}</span>
+                <input value={form[subj]||""} onChange={e=>update(subj,e.target.value)}
+                  placeholder="এই বিষয়ের টার্গেট লিখুন..."
+                  style={{padding:"6px 8px",border:`1px solid ${C.bd}`,borderRadius:6,fontSize:11,outline:"none"}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <button onClick={handlePrint} style={{flex:1,padding:"10px",background:"#fff",color:"#1B3A6B",border:"1px solid #1B3A6B",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:12}}>🖨️ প্রিন্ট</button>
+            <button onClick={handleSave} style={{flex:2,padding:"10px",background:"#1B3A6B",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 সংরক্ষণ</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bulk Subject Target Modal (All / Custom students) ──────
+function BulkSubjectTargetModal({students,weekLabel,onSave,onClose}){
+  const allSubjects=Array.from(new Set([...SSC_COMMON_7,...SSC_DEPT_SUBJECTS.science,...SSC_DEPT_SUBJECTS.commerce,...SSC_DEPT_SUBJECTS.arts]));
+  const [subject,setSubject]=useState(allSubjects[0]);
+  const [text,setText]=useState("");
+  const [scope,setScope]=useState("all");
+  const [selected,setSelected]=useState([]);
+
+  const toggleStudent=(s)=>setSelected(prev=>prev.includes(s)?prev.filter(x=>x!==s):[...prev,s]);
+
+  const handleSave=()=>{
+    if(!text.trim())return;
+    const targetStudents = scope==="all" ? students : selected;
+    if(targetStudents.length===0)return;
+    onSave(subject,text,targetStudents);
+    onClose();
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,overflowY:"auto",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 8px"}}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:520,boxShadow:"0 8px 40px rgba(0,0,0,0.18)"}}>
+        <div style={{background:"#1a6b3a",borderRadius:"16px 16px 0 0",padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:14}}>📚 বিষয়ভিত্তিক টার্গেট (একসাথে)</div>
+            <div style={{color:"rgba(255,255,255,0.75)",fontSize:11}}>{weekLabel}</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:20,padding:"4px 10px",cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={{padding:"12px 16px"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:700,color:C.mu}}>বিষয় নির্বাচন করুন</span>
+            <select value={subject} onChange={e=>setSubject(e.target.value)}
+              style={{padding:"6px 8px",border:`1px solid ${C.bd}`,borderRadius:6,fontSize:12,outline:"none"}}>
+              {allSubjects.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:700,color:C.mu}}>টার্গেট লিখুন</span>
+            <input value={text} onChange={e=>setText(e.target.value)}
+              placeholder="যেমন: অধ্যায় ৫ সম্পূর্ণ + ২০টি MCQ অনুশীলন"
+              style={{padding:"6px 8px",border:`1px solid ${C.bd}`,borderRadius:6,fontSize:12,outline:"none"}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:700,color:C.mu}}>কাদের জন্য প্রযোজ্য?</span>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setScope("all")} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${scope==="all"?"#1a6b3a":C.bd}`,background:scope==="all"?"#e8f5ee":"#fff",color:scope==="all"?"#1a6b3a":C.mu,fontWeight:700,fontSize:11,cursor:"pointer"}}>👥 সকল শিক্ষার্থী</button>
+              <button onClick={()=>setScope("custom")} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${scope==="custom"?"#1a6b3a":C.bd}`,background:scope==="custom"?"#e8f5ee":"#fff",color:scope==="custom"?"#1a6b3a":C.mu,fontWeight:700,fontSize:11,cursor:"pointer"}}>✏️ নির্দিষ্ট শিক্ষার্থী</button>
+            </div>
+          </div>
+          {scope==="custom"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"30vh",overflowY:"auto",marginBottom:10,border:`1px solid ${C.bd}`,borderRadius:8,padding:8}}>
+              {students.map(s=>(
+                <label key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,cursor:"pointer"}}>
+                  <input type="checkbox" checked={selected.includes(s)} onChange={()=>toggleStudent(s)}/>
+                  {s}
+                </label>
+              ))}
+            </div>
+          )}
+          <button onClick={handleSave} style={{width:"100%",padding:"10px",background:"#1a6b3a",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 প্রয়োগ করুন ({scope==="all"?students.length:selected.length} জন)</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Weekly Report Entry Modal ──────────────────────
 function WeeklyReportModal({student,weekKey,weekLabel,target,existingReport,onSave,onClose,isAdmin,dept,deptSubjects}){
   const er=existingReport||{};
@@ -10194,6 +10327,8 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
   const [selStudent,setSelStudent]=useState(null);
   const [showTargetModal,setShowTargetModal]=useState(false);
   const [showReportModal,setShowReportModal]=useState(null);// student name
+  const [showSubjectBulkModal,setShowSubjectBulkModal]=useState(false);
+  const [subjectTargetStudent,setSubjectTargetStudent]=useState(null);// student name for per-subject target modal
   const [selectedWeek,setSelectedWeek]=useState(()=>{
     const d=new Date();
     // সোমবার থেকে রবিবার — এই সপ্তাহের সোমবার
@@ -10218,6 +10353,25 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
 
   const saveTargets=(wk,wkLabel,form)=>{
     setSscData(prev=>({...prev,weeklyTargets:{...(prev.weeklyTargets||{}),[wk]:form}}));
+  };
+
+  const saveSubjectTargets=(wk,student,subjData)=>{
+    setSscData(prev=>{
+      const wkTargets={...((prev.weeklyTargets||{})[wk]||{})};
+      wkTargets[student]={...(wkTargets[student]||{}),subjects:subjData};
+      return {...prev,weeklyTargets:{...(prev.weeklyTargets||{}),[wk]:wkTargets}};
+    });
+  };
+
+  const saveBulkSubjectTarget=(wk,subject,text,targetStudents)=>{
+    setSscData(prev=>{
+      const wkTargets={...((prev.weeklyTargets||{})[wk]||{})};
+      targetStudents.forEach(student=>{
+        const existing=wkTargets[student]||{};
+        wkTargets[student]={...existing,subjects:{...(existing.subjects||{}),[subject]:text}};
+      });
+      return {...prev,weeklyTargets:{...(prev.weeklyTargets||{}),[wk]:wkTargets}};
+    });
   };
 
   const saveReport=(wk,student,data)=>{
@@ -10475,14 +10629,18 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <H3>🎯 সাপ্তাহিক টার্গেট ও রিপোর্ট</H3>
               {isAdmin&&(
-                <button onClick={()=>setShowTargetModal(true)} style={{padding:"6px 12px",background:"#1B3A6B",color:"#fff",border:"none",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ টার্গেট দিন</button>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setShowSubjectBulkModal(true)} style={{padding:"6px 12px",background:"#1a6b3a",color:"#fff",border:"none",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer"}}>📚 বিষয়ভিত্তিক টার্গেট</button>
+                  <button onClick={()=>setShowTargetModal(true)} style={{padding:"6px 12px",background:"#1B3A6B",color:"#fff",border:"none",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer"}}>+ টার্গেট দিন</button>
+                </div>
               )}
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <span style={{fontSize:11,color:C.mu}}>সপ্তাহ:</span>
               <input type="date" value={selectedWeek} onChange={e=>setSelectedWeek(e.target.value)}
                 style={{padding:"4px 8px",border:`1px solid ${C.bd}`,borderRadius:6,fontSize:12,outline:"none"}}/>
             </div>
+            <div style={{fontSize:10,color:"#6b21a8",marginBottom:8}}>💡 কোনো ছাত্রের নামের উপর ক্লিক করলে তার বিষয়ভিত্তিক টার্গেট দেখা/দেওয়া যাবে</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {students.map(student=>{
                 const target=currentTargets[student];
@@ -10496,7 +10654,7 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
                   <div key={student} style={{background:inputComplete?"#f0faf4":"#f5f5f5",borderRadius:10,padding:"10px 12px",border:`1px solid ${inputComplete?"#a5d6a7":"#e0e0e0"}`}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{fontWeight:700,fontSize:12,color:C.tx}}>{student}</div>
+                        <div onClick={()=>setSubjectTargetStudent(student)} title="বিষয়ভিত্তিক টার্গেট দেখতে/দিতে ক্লিক করুন" style={{fontWeight:700,fontSize:12,color:"#1B3A6B",cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{student}</div>
                         {deptInfo&&<span style={{fontSize:9,background:deptInfo.bg,color:deptInfo.color,padding:"1px 6px",borderRadius:8,fontWeight:700,border:`1px solid ${deptInfo.color}33`}}>{deptInfo.label}</span>}
                         <RiskBadge score={risk}/>
                       </div>
@@ -10517,6 +10675,13 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
                         {target.chapterTarget&&<span style={{background:"#eaf1fb",padding:"2px 8px",borderRadius:10}}>📚 {target.chapterTarget}</span>}
                         {target.hoursTarget&&<span style={{background:"#fff8e1",padding:"2px 8px",borderRadius:10}}>⏰ {target.hoursTarget} ঘণ্টা/দিন</span>}
                         {target.markTarget&&<span style={{background:"#e8f5ee",padding:"2px 8px",borderRadius:10}}>🎯 {target.markTarget}+ নম্বর</span>}
+                      </div>
+                    )}
+                    {target?.subjects&&Object.values(target.subjects).some(v=>v)&&(
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:10,color:"#6b21a8",marginTop:4}}>
+                        {Object.entries(target.subjects).filter(([,v])=>v).map(([subj,txt])=>(
+                          <span key={subj} style={{background:"#f3e8ff",padding:"2px 8px",borderRadius:10}}>📖 {subj}: {txt}</span>
+                        ))}
                       </div>
                     )}
                     {report&&(
@@ -10828,6 +10993,25 @@ function SSCCommandCenter({sscData,setSscData,results,STUDENTS,isAdmin,currentUs
           isAdmin={isAdmin}
           dept={profiles[showReportModal]?.dept||"science"}
           deptSubjects={DEPT_PRINT_SUBJECTS[profiles[showReportModal]?.dept||"science"]?.subjects||[]}
+        />
+      )}
+      {subjectTargetStudent&&(
+        <StudentSubjectTargetModal
+          student={subjectTargetStudent}
+          dept={profiles[subjectTargetStudent]?.dept}
+          deptInfo={profiles[subjectTargetStudent]?.dept?SSC_DEPARTMENTS[profiles[subjectTargetStudent].dept]:null}
+          weekLabel={weekLabel}
+          currentSubjects={(currentTargets[subjectTargetStudent]||{}).subjects||{}}
+          onSave={(subjData)=>saveSubjectTargets(selectedWeek,subjectTargetStudent,subjData)}
+          onClose={()=>setSubjectTargetStudent(null)}
+        />
+      )}
+      {showSubjectBulkModal&&(
+        <BulkSubjectTargetModal
+          students={students}
+          weekLabel={weekLabel}
+          onSave={(subject,text,targetStudents)=>saveBulkSubjectTarget(selectedWeek,subject,text,targetStudents)}
+          onClose={()=>setShowSubjectBulkModal(false)}
         />
       )}
     </div>
