@@ -9325,8 +9325,12 @@ function SSCTarget({results,STUDENTS,currentUser,isAdmin,weeklyTargets,setWeekly
       const ts=targetsFor(subject,week).filter(t=>t.scope==="all"||((t.students||[]).includes(studentName)));
       return ts.map(t=>t.text).join("; ");
     };
-    const subjectRows=subjects.map(s=>`<tr><td>${s}</td><td>${(targetFor(s,"__W__")||"").replace(/</g,"&lt;")}</td><td style="white-space:nowrap">☐ হ্যাঁ &nbsp;☐ না</td><td>____%</td><td></td></tr>`).join("");
-    const pageFor=(week)=>`
+    const pageFor=(week)=>{
+    const subjectRows=subjects.map(s=>{
+      const tgtText=(targetFor(s,week)||"—").replace(/</g,"&lt;");
+      return `<tr><td>${s}</td><td class="tgt-cell" contenteditable="true" title="প্রয়োজনে এখানে ক্লিক করে এডিট করুন">${tgtText}</td><td style="white-space:nowrap">☐ হ্যাঁ &nbsp;☐ না</td><td>____%</td><td></td></tr>`;
+    }).join("");
+    return `
 <div class="page">
   <div class="hdr">
     <div class="hdr-l"><div class="sch">হেরিটেজ পাবলিক স্কুল</div><div class="sub2">SSC আবাসিক শাখা</div></div>
@@ -9337,7 +9341,7 @@ function SSCTarget({results,STUDENTS,currentUser,isAdmin,weeklyTargets,setWeekly
 
   <div class="sec-title">১) বিষয়ভিত্তিক পাঠ অগ্রগতি <span class="note">★ TARGET অংশ শিক্ষক পূরণ করেছেন — বাকিটা শিক্ষার্থী পূরণ করবে</span></div>
   <table class="main"><thead><tr><th>বিষয়</th><th>সপ্তাহের টার্গেট ★</th><th>পড়েছি?</th><th>অগ্রগতি</th><th>কোথায় আটকেছি / মন্তব্য</th></tr></thead>
-  <tbody>${subjectRows.replace(/__W__/g,week)}</tbody></table>
+  <tbody>${subjectRows}</tbody></table>
 
   <div class="grid2">
     <div>
@@ -9372,37 +9376,42 @@ function SSCTarget({results,STUDENTS,currentUser,isAdmin,weeklyTargets,setWeekly
   <div class="foot"><span>ছাত্রের স্বাক্ষর ও তারিখ: ______________</span><span>Academic In-charge স্বাক্ষর: ______________</span></div>
   <div class="foot2">HAIS — Heritage Academic Intelligence System · SSC ২০২৭ ব্যাচ · মুদ্রণের তারিখ: ${today}</div>
 </div>`;
+    };
     const w=window.open("","_blank");
     w.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>Self-Report ফর্ম — ${studentName}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',sans-serif;background:#f0eeff;color:#1a1a2e;font-size:11px}
-.page{background:#fff;max-width:900px;margin:14px auto;padding:18px;border:2px solid #5344b5;page-break-after:always}
+.page{background:#fff;max-width:900px;margin:14px auto;padding:18px;border:2px solid #5344b5;page-break-after:always;page-break-inside:avoid;break-inside:avoid}
 .page:last-child{page-break-after:auto}
-.hdr{display:flex;justify-content:space-between;gap:8px;border-bottom:2px solid #5344b5;padding-bottom:8px;margin-bottom:8px}
+.hdr{display:flex;justify-content:space-between;gap:8px;border-bottom:2px solid #5344b5;padding-bottom:8px;margin-bottom:8px;page-break-inside:avoid;break-inside:avoid}
 .hdr-l .sch{font-weight:800;color:#5344b5;font-size:14px}
 .hdr-m{font-weight:800;color:#1a1a2e;font-size:13px;text-align:center;flex:1}
 .hdr-r{font-weight:700;color:#5344b5;font-size:12px;text-align:right}
 .sub2{font-size:9px;color:#6b6b8a;font-weight:400}
-.info{display:flex;flex-wrap:wrap;gap:16px;font-size:11px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-bottom:10px}
-.sec-title{font-weight:700;color:#5344b5;font-size:12px;margin:10px 0 6px}
+.info{display:flex;flex-wrap:wrap;gap:16px;font-size:11px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid}
+.sec-title{font-weight:700;color:#5344b5;font-size:12px;margin:10px 0 6px;page-break-after:avoid;break-after:avoid}
 .note{font-size:9px;color:#854f0b;font-weight:400;float:right}
-table.main{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:10px}
+table.main{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid}
 table.main th{background:#5344b5;color:#fff;padding:5px 6px;text-align:left}
 table.main td{padding:5px 6px;border:1px solid #ddd}
-.grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+table.main tr{page-break-inside:avoid;break-inside:avoid}
+.tgt-cell{cursor:text;outline:none}
+.tgt-cell:hover,.tgt-cell:focus{background:#fff7e0}
+.grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid}
+.grid2>div{page-break-inside:avoid;break-inside:avoid}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:10px}
-table.small{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:6px}
+table.small{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:6px;page-break-inside:avoid;break-inside:avoid}
 table.small th,table.small td{border:1px solid #ddd;padding:3px;text-align:center}
 .boxline{border-bottom:1px solid #ccc;height:16px;margin-top:4px}
-.teacher-box{border:1.5px solid #5344b5;border-radius:6px;padding:10px;margin-top:12px}
-.foot{display:flex;justify-content:space-between;font-size:10px;margin-top:16px;border-top:1px solid #ccc;padding-top:8px}
+.teacher-box{border:1.5px solid #5344b5;border-radius:6px;padding:10px;margin-top:12px;page-break-inside:avoid;break-inside:avoid}
+.foot{display:flex;justify-content:space-between;font-size:10px;margin-top:16px;border-top:1px solid #ccc;padding-top:8px;page-break-inside:avoid;break-inside:avoid}
 .foot2{text-align:center;font-size:9px;color:#999;margin-top:6px}
 .no-print{max-width:900px;margin:10px auto;text-align:center}
-@media print{.no-print{display:none!important}body{background:#fff}.page{margin:0;border:none;box-shadow:none}}
+@media print{.no-print{display:none!important}body{background:#fff}.page{margin:0;border:none;box-shadow:none}.tgt-cell{background:none!important}}
 @page{margin:8mm;size:A4}
 </style></head><body>
-<div class="no-print"><button onclick="window.print()" style="padding:9px 20px;background:#5344b5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">🖨️ প্রিন্ট / PDF সেভ করুন (মোট ${maxWeek} সপ্তাহের ফর্ম)</button></div>
+<div class="no-print"><button onclick="window.print()" style="padding:9px 20px;background:#5344b5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">🖨️ প্রিন্ট / PDF সেভ করুন (মোট ${maxWeek} সপ্তাহের ফর্ম)</button><div style="font-size:11px;color:#6b6b8a;margin-top:6px">💡 টার্গেট ঘরে ক্লিক করে সরাসরি এডিট করতে পারবেন (শুধু এই প্রিন্ট কপিতে)</div></div>
 ${Array.from({length:maxWeek},(_,i)=>pageFor(i+1)).join("")}
 </body></html>`);
     w.document.close();
