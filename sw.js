@@ -4,7 +4,7 @@
    প্রতিবার নতুন version deploy হলে CACHE_VERSION বাড়িয়ে দিন
    ============================================================ */
 
-const CACHE_VERSION = 'hais-v7.0';
+const CACHE_VERSION = 'hais-v7.1';
 const CACHE_NAME = `hais-cache-${CACHE_VERSION}`;
 
 const CORE_FILES = [
@@ -78,7 +78,7 @@ self.addEventListener('fetch', event => {
   }
 
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-store' })
       .then(networkResponse => {
         // Network থেকে পেলে cache আপডেট করো
         if (networkResponse && networkResponse.status === 200) {
