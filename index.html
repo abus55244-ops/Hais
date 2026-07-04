@@ -5120,7 +5120,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
   const clsSubjects=SUBJECTS_BY_CLASS[cls]||SUBJECTS;
   // এই শিক্ষকের জন্য নির্ধারিত বিষয় থাকলে শুধু সেগুলোই দেখানো হবে
   const allowedSubjects=useMemo(()=>{
-    const mapped=teacherSubjects[teacher];
+    const mapped=resolveTeacherSubjects(teacherSubjects,teacher);
     if(!mapped||!mapped.length)return clsSubjects;
     // নতুন ফরম্যাট: [{cls,sub},...] — শ্রেণিভিত্তিক ফিল্টার
     if(typeof mapped[0]==="object"){
@@ -5223,7 +5223,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     <Card>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
         <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>শ্রেণি</div><select value={cls} onChange={e=>handleClsChange(e.target.value)}>{Object.keys(STUDENTS).map(c=><option key={c} value={c}>শ্রেণি {c}</option>)}</select></div>
-        <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>বিষয়{teacherSubjects[teacher]&&teacherSubjects[teacher].length?" (আপনার জন্য নির্ধারিত)":""}</div><select value={sub} onChange={e=>setSub(e.target.value)}>{allowedSubjects.map(s=><option key={s}>{s}</option>)}</select></div>
+        <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>বিষয়{resolveTeacherSubjects(teacherSubjects,teacher)?.length?" (আপনার জন্য নির্ধারিত)":""}</div><select value={sub} onChange={e=>setSub(e.target.value)}>{allowedSubjects.map(s=><option key={s}>{s}</option>)}</select></div>
         <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>পরীক্ষার ধরন</div><select value={ex} onChange={e=>setEx(e.target.value)}>{exList.map(e=><option key={e}>{e}</option>)}</select></div>
         <div>
           <div style={{fontSize:11,color:C.mu,marginBottom:4}}>শিক্ষক</div>
@@ -6388,14 +6388,35 @@ function getWeekDays(weekStart){
 }
 
 // শিক্ষকের নির্ধারিত বিষয়+শ্রেণি তালিকা বের করা
+// ── FIX: teacherSubjects লুকআপে সামান্য নাম-অমিল (স্পেস/কেস ভিন্নতা) সহনশীল করা ──
+// অ্যাডমিন ম্যাপিং করার সময় যে নাম বেছে নিয়েছেন, আর শিক্ষক লগইন করার সময় যে নাম ব্যবহৃত হয়
+// তার মধ্যে সামান্য পার্থক্য (অতিরিক্ত স্পেস, কেস ভিন্নতা) থাকলেও সঠিক ম্যাপিং খুঁজে পাওয়া যাবে।
+function resolveTeacherSubjects(teacherSubjects,teacherName){
+  if(!teacherName||!teacherSubjects)return null;
+  if(teacherSubjects[teacherName]!==undefined)return teacherSubjects[teacherName];
+  const norm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
+  const target=norm(teacherName);
+  const foundKey=Object.keys(teacherSubjects).find(k=>norm(k)===target);
+  return foundKey?teacherSubjects[foundKey]:null;
+}
 function getTeacherAssignments(teacher,teacherSubjects){
-  const mapped=teacherSubjects[teacher];
+  const mapped=resolveTeacherSubjects(teacherSubjects,teacher);
   if(!mapped||!mapped.length)return[];
   if(typeof mapped[0]==="object"){
     return mapped; // [{cls,sub},...] format
   }
-  // পুরনো format: শুধু subject array
-  return mapped.map(sub=>({cls:"",sub}));
+  // ── FIX: পুরনো format (শুধু subject নামের array, ক্লাস-নির্দিষ্ট তথ্য ছাড়া) ──
+  // আগে এটাকে {cls:"",sub} হিসেবে রূপান্তর করা হতো, যেটা সপ্তাহভিত্তিক ভিউতে "শ্রেণি" ফাঁকা
+  // দেখাত এবং প্রকৃতপক্ষে অকার্যকর একটা এন্ট্রি তৈরি করত। এখন সেই বিষয়টা যে যে ক্লাসে পড়ানো হয়
+  // (SUBJECTS_BY_CLASS অনুযায়ী) সবগুলোতে সঠিকভাবে সম্প্রসারণ করা হয়, যাতে প্রতিটি ক্লাস-বিষয়
+  // কম্বিনেশনের জন্য আলাদা, কার্যকর এন্ট্রি তৈরি হয়।
+  const expanded=[];
+  mapped.forEach(sub=>{
+    Object.entries(SUBJECTS_BY_CLASS).forEach(([cls,subs])=>{
+      if(subs.includes(sub))expanded.push({cls,sub});
+    });
+  });
+  return expanded.length?expanded:mapped.map(sub=>({cls:"",sub}));
 }
 
 // উইন্ডো টাইমার ফরম্যাট
@@ -7200,7 +7221,7 @@ function LPSubmitForm({currentUser,onSubmit,onCancel,initial=null,teacherSubject
   const selTeacher=canSelectTeacher?teacher:currentUser;
   const clsSubjects=SUBJECTS_BY_CLASS[cls]||SUBJECTS;
   const allowedSubjects=useMemo(()=>{
-    const mapped=teacherSubjects[selTeacher];
+    const mapped=resolveTeacherSubjects(teacherSubjects,selTeacher);
     if(!mapped||!mapped.length)return clsSubjects;
     if(typeof mapped[0]==="object"){
       const forCls=mapped.filter(x=>x.cls===cls).map(x=>x.sub);
@@ -7299,7 +7320,7 @@ function LPSubmitForm({currentUser,onSubmit,onCancel,initial=null,teacherSubject
                 {Object.keys(STUDENTS).map(c=><option key={c} value={c}>শ্রেণি {c}</option>)}
               </select>
             </div>
-            <div><FLabel req>বিষয়{teacherSubjects[selTeacher]&&teacherSubjects[selTeacher].length?" (নির্ধারিত)":""}</FLabel>
+            <div><FLabel req>বিষয়{resolveTeacherSubjects(teacherSubjects,selTeacher)?.length?" (নির্ধারিত)":""}</FLabel>
               <select value={sub} onChange={e=>setSub(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
                 {allowedSubjects.map(s=><option key={s}>{s}</option>)}
               </select>
@@ -7530,14 +7551,14 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   // পুরনো (non-weekly) plan
   const oldPlans=useMemo(()=>(lessonPlans._v2||[]).filter(p=>p.type!=="weekly"),[lessonPlans]);
 
-  // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
-  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
-
   // শিক্ষকের নির্ধারিত বিষয়+শ্রেণি
   const myAssignments=useMemo(()=>{
     if(isAdmin)return[];
     return getTeacherAssignments(effectiveTeacher,teacherSubjects);
   },[isAdmin,effectiveTeacher,teacherSubjects]);
+
+  // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
+  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
   const submittedThisWeek=useMemo(()=>{
     if(!effectiveTeacher)return{};
     const map={};
