@@ -1102,15 +1102,44 @@ function DanielsonForm({observerTeacher,observedTeacher,date,cls,subject,onSave,
   const initScores={};
   DANIELSON_DOMAINS.forEach(d=>{initScores[d.key]=d.items.map(()=>3);});
   const [scores,setScores]=useState(initScores);
+  const [evidence,setEvidence]=useState({}); // "domKey_idx" -> text, শুধু চরম রেটিং (১ বা ৪) হলে বাধ্যতামূলক
   const [strengths,setStrengths]=useState("");
   const [improvements,setImprovements]=useState("");
+  const [observerTakeaway,setObserverTakeaway]=useState("");
+
+  // ── FIX: ন্যূনতম সময় গেট ──
+  // ফর্ম খোলার সাথে সাথেই জমা দেওয়া যায় না — বাস্তবে ক্লাস পর্যবেক্ষণ না করেও নম্বর বসিয়ে
+  // দেওয়া ঠেকাতে, ফর্মটা একটা যুক্তিসঙ্গত সময় (১৫ মিনিট) খোলা থাকতে হবে জমা দেওয়ার আগে।
+  const MIN_MINUTES=15;
+  const [startedAt]=useState(Date.now());
+  const [nowTick,setNowTick]=useState(Date.now());
+  useEffect(()=>{
+    const iv=setInterval(()=>setNowTick(Date.now()),1000);
+    return ()=>clearInterval(iv);
+  },[]);
+  const elapsedMs=nowTick-startedAt;
+  const timeOk=elapsedMs>=MIN_MINUTES*60000;
+  const remainingSec=Math.max(0,Math.ceil((MIN_MINUTES*60000-elapsedMs)/1000));
+  const remMin=Math.floor(remainingSec/60), remSec=remainingSec%60;
 
   const setRating=(domKey,idx,val)=>{
     setScores(prev=>({...prev,[domKey]:prev[domKey].map((v,i)=>i===idx?val:v)}));
   };
+  const setEv=(domKey,idx,text)=>setEvidence(prev=>({...prev,[`${domKey}_${idx}`]:text}));
 
   const totalScore=calcPeerObsTotal(scores);
   const totalColor=totalScore>=85?C.gr:totalScore>=65?C.te:totalScore>=45?C.am:C.re;
+
+  // ── FIX: চরম রেটিং (১=Unsatisfactory বা ৪=Distinguished) দিলে সেই নির্দিষ্ট আইটেমের
+  // জন্য একটা concrete প্রমাণ লেখা বাধ্যতামূলক — নাম্বার শুধু ক্লিক করে দেওয়া যাবে না ──
+  const missingEvidence=[];
+  DANIELSON_DOMAINS.forEach(d=>d.items.forEach((item,idx)=>{
+    const v=scores[d.key][idx];
+    if((v===1||v===4)&&!(evidence[`${d.key}_${idx}`]||"").trim())missingEvidence.push({dom:d.label,item});
+  }));
+  const strengthsOk=strengths.trim().length>=20;
+  const improvementsOk=improvements.trim().length>=20;
+  const allOk=timeOk&&missingEvidence.length===0&&strengthsOk&&improvementsOk;
 
   return(<Card>
     <H3>📝 পর্যবেক্ষণ ফর্ম পূরণ করুন</H3>
@@ -1121,44 +1150,77 @@ function DanielsonForm({observerTeacher,observedTeacher,date,cls,subject,onSave,
       <div><b>তারিখ:</b> {date}</div>
     </div>
 
+    <div style={{background:timeOk?C.grL:C.amL,border:`1px solid ${timeOk?C.gr:C.am}40`,borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:12,color:timeOk?C.gr:C.am,fontWeight:700}}>
+      {timeOk?"✅ ন্যূনতম পর্যবেক্ষণ সময় পূর্ণ হয়েছে":`⏳ পুরো ক্লাস মনোযোগ দিয়ে পর্যবেক্ষণ করুন — জমা দেওয়া যাবে ${remMin} মিনিট ${remSec} সেকেন্ড পরে`}
+    </div>
+
     {DANIELSON_DOMAINS.map(dom=>(
       <div key={dom.key} style={{marginBottom:14}}>
         <H3 style={{color:dom.color}}>{dom.label}</H3>
-        {dom.items.map((item,idx)=>(
+        {dom.items.map((item,idx)=>{
+          const v=scores[dom.key][idx];
+          const needsEvidence=v===1||v===4;
+          const evKey=`${dom.key}_${idx}`;
+          return(
           <div key={idx} style={{marginBottom:8,padding:"8px 10px",background:C.bg,borderRadius:8}}>
             <div style={{fontSize:12,marginBottom:6}}>{idx+1}. {item}</div>
             <div style={{display:"flex",gap:4}}>
-              {[1,2,3,4].map(v=>(
-                <button key={v} onClick={()=>setRating(dom.key,idx,v)} style={{flex:1,padding:"6px 2px",borderRadius:6,border:`1px solid ${scores[dom.key][idx]===v?DANIELSON_RATING_COLORS[v]:C.bd}`,background:scores[dom.key][idx]===v?DANIELSON_RATING_COLORS[v]+"22":"#fff",color:scores[dom.key][idx]===v?DANIELSON_RATING_COLORS[v]:C.mu,cursor:"pointer",fontSize:10,fontWeight:scores[dom.key][idx]===v?700:400}}>
-                  {v}<br/>{DANIELSON_RATING_LABELS[v]}
+              {[1,2,3,4].map(val=>(
+                <button key={val} onClick={()=>setRating(dom.key,idx,val)} style={{flex:1,padding:"6px 2px",borderRadius:6,border:`1px solid ${v===val?DANIELSON_RATING_COLORS[val]:C.bd}`,background:v===val?DANIELSON_RATING_COLORS[val]+"22":"#fff",color:v===val?DANIELSON_RATING_COLORS[val]:C.mu,cursor:"pointer",fontSize:10,fontWeight:v===val?700:400}}>
+                  {val}<br/>{DANIELSON_RATING_LABELS[val]}
                 </button>
               ))}
             </div>
-          </div>
-        ))}
+            {needsEvidence&&(
+              <div style={{marginTop:6}}>
+                <div style={{fontSize:10,color:C.re,fontWeight:700,marginBottom:3}}>
+                  ✍️ এই রেটিংয়ের জন্য নির্দিষ্ট প্রমাণ লিখুন (কী দেখেছেন/শুনেছেন) — বাধ্যতামূলক
+                </div>
+                <input type="text" value={evidence[evKey]||""} onChange={e=>setEv(dom.key,idx,e.target.value)} placeholder="নির্দিষ্ট উদাহরণ লিখুন..." style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${(evidence[evKey]||"").trim()?C.bd:C.re}`,fontSize:11,boxSizing:"border-box"}}/>
+              </div>
+            )}
+          </div>);
+        })}
       </div>
     ))}
 
     <H3>Strengths (শক্তিশালী দিক)</H3>
-    <textarea value={strengths} onChange={e=>setStrengths(e.target.value)} placeholder="শিক্ষকের ভালো দিকগুলো লিখুন..." style={{width:"100%",minHeight:60,marginBottom:10}}/>
+    <div style={{fontSize:10,color:C.mu,marginBottom:4}}>নির্দিষ্ট উদাহরণ সহ লিখুন — কমপক্ষে ২০ অক্ষর (খালি/এক শব্দের মন্তব্য গ্রহণযোগ্য না)</div>
+    <textarea value={strengths} onChange={e=>setStrengths(e.target.value)} placeholder="শিক্ষকের ভালো দিকগুলো নির্দিষ্ট উদাহরণসহ লিখুন..." style={{width:"100%",minHeight:60,marginBottom:4,border:`1px solid ${strengthsOk?C.bd:C.re}`,boxSizing:"border-box"}}/>
+    {!strengthsOk&&<div style={{fontSize:10,color:C.re,marginBottom:8}}>আরও {20-strengths.trim().length} অক্ষর লিখুন</div>}
 
     <H3>Areas for Improvement (উন্নতির ক্ষেত্র)</H3>
-    <textarea value={improvements} onChange={e=>setImprovements(e.target.value)} placeholder="উন্নতির জন্য পরামর্শ লিখুন..." style={{width:"100%",minHeight:60,marginBottom:10}}/>
+    <div style={{fontSize:10,color:C.mu,marginBottom:4}}>গঠনমূলক ও নির্দিষ্ট পরামর্শ — কমপক্ষে ২০ অক্ষর</div>
+    <textarea value={improvements} onChange={e=>setImprovements(e.target.value)} placeholder="উন্নতির জন্য নির্দিষ্ট পরামর্শ লিখুন..." style={{width:"100%",minHeight:60,marginBottom:4,border:`1px solid ${improvementsOk?C.bd:C.re}`,boxSizing:"border-box"}}/>
+    {!improvementsOk&&<div style={{fontSize:10,color:C.re,marginBottom:8}}>আরও {20-improvements.trim().length} অক্ষর লিখুন</div>}
+
+    <H3>🎓 পর্যবেক্ষক হিসেবে আমি কী শিখলাম (ঐচ্ছিক)</H3>
+    <div style={{fontSize:10,color:C.mu,marginBottom:4}}>ক্লাস পর্যবেক্ষণ শুধু মূল্যায়নের জন্য না — আপনার নিজের শেখারও একটা সুযোগ। অন্য শিক্ষকের কোনো ভালো কৌশল দেখলে লিখুন, নিজের ক্লাসেও প্রয়োগ করতে পারবেন।</div>
+    <textarea value={observerTakeaway} onChange={e=>setObserverTakeaway(e.target.value)} placeholder="যা শিখলাম বা নিজের ক্লাসে প্রয়োগ করতে চাই..." style={{width:"100%",minHeight:50,marginBottom:10,boxSizing:"border-box"}}/>
 
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:totalColor+"15",border:`1px solid ${totalColor}30`,borderRadius:8,marginBottom:12}}>
       <span style={{fontSize:12,fontWeight:700}}>মোট স্কোর (Overall Score)</span>
       <span style={{fontSize:22,fontWeight:700,color:totalColor}}>{totalScore}/100</span>
     </div>
 
+    {!allOk&&(
+      <div style={{fontSize:11,color:C.re,marginBottom:10}}>
+        জমা দেওয়ার আগে ঠিক করুন: {!timeOk&&"ন্যূনতম সময় এখনো পূর্ণ হয়নি। "}{missingEvidence.length>0&&`${missingEvidence.length}টি চরম রেটিংয়ের প্রমাণ বাকি। `}{!strengthsOk&&"Strengths সংক্ষিপ্ত। "}{!improvementsOk&&"Areas for Improvement সংক্ষিপ্ত।"}
+      </div>
+    )}
+
     <div style={{display:"flex",gap:8}}>
       <button onClick={onCancel} style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.bd}`,background:"#fff",color:C.mu,cursor:"pointer",fontWeight:700,fontSize:13}}>বাতিল</button>
-      <button onClick={()=>onSave({scores,strengths,improvements,totalScore})} style={{flex:2,padding:"10px",borderRadius:8,border:"none",background:C.pu,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>✓ পর্যবেক্ষণ সংরক্ষণ করুন</button>
+      <button onClick={()=>allOk&&onSave({scores,evidence,strengths,improvements,observerTakeaway,totalScore})} disabled={!allOk} style={{flex:2,padding:"10px",borderRadius:8,border:"none",background:allOk?C.pu:"#ccc",color:"#fff",cursor:allOk?"pointer":"not-allowed",fontWeight:700,fontSize:13}}>✓ পর্যবেক্ষণ সংরক্ষণ করুন</button>
     </div>
   </Card>);
 }
 
-function PeerObservationReportCard({rec,onDelete}){
+function PeerObservationReportCard({rec,onDelete,currentUser,onReflect}){
   const tColor=rec.totalScore>=85?C.gr:rec.totalScore>=65?C.te:rec.totalScore>=45?C.am:C.re;
+  const [reflectDraft,setReflectDraft]=useState(rec.observedReflection||"");
+  const [editingReflect,setEditingReflect]=useState(false);
+  const canReflect=currentUser&&currentUser===rec.observedTeacher&&onReflect;
   return(<Card style={{padding:"10px 12px"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
       <div>
@@ -1175,6 +1237,23 @@ function PeerObservationReportCard({rec,onDelete}){
       {rec.strengths&&<div style={{marginBottom:4}}><b style={{color:C.gr}}>শক্তিশালী দিক:</b> {rec.strengths}</div>}
       {rec.improvements&&<div><b style={{color:C.am}}>উন্নতির ক্ষেত্র:</b> {rec.improvements}</div>}
     </div>)}
+    {rec.observerTakeaway&&(<div style={{marginTop:6,fontSize:11,background:C.puL,borderRadius:6,padding:"6px 8px"}}>
+      <b style={{color:C.pu}}>🎓 পর্যবেক্ষক যা শিখলেন:</b> {rec.observerTakeaway}
+    </div>)}
+    {/* ── মিউচুয়াল বেনিফিট: পর্যবেক্ষিত শিক্ষক নিজে একটা প্রতিক্রিয়া/প্রতিফলন যোগ করতে পারবেন ── */}
+    {rec.observedReflection&&!editingReflect&&(<div style={{marginTop:6,fontSize:11,background:C.teL,borderRadius:6,padding:"6px 8px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div><b style={{color:C.te}}>💬 আমার প্রতিফলন:</b> {rec.observedReflection}</div>
+        {canReflect&&<button onClick={()=>setEditingReflect(true)} style={{border:"none",background:"transparent",color:C.te,cursor:"pointer",fontSize:10,flexShrink:0,marginLeft:6}}>✎</button>}
+      </div>
+    </div>)}
+    {canReflect&&(!rec.observedReflection||editingReflect)&&(
+      <div style={{marginTop:8}}>
+        <div style={{fontSize:10,color:C.mu,marginBottom:4}}>💬 এই পর্যবেক্ষণ নিয়ে আপনার প্রতিক্রিয়া/প্রতিফলন লিখুন (ঐচ্ছিক) — এটা একটা দ্বিমুখী কথোপকথন, শুধু একতরফা রায় না</div>
+        <textarea value={reflectDraft} onChange={e=>setReflectDraft(e.target.value)} placeholder="আপনার মতামত বা পরিকল্পনা লিখুন..." style={{width:"100%",minHeight:44,fontSize:11,boxSizing:"border-box"}}/>
+        <button onClick={()=>{onReflect(rec.id,reflectDraft.trim());setEditingReflect(false);}} style={{marginTop:4,padding:"5px 10px",borderRadius:6,border:"none",background:C.te,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>✓ সংরক্ষণ করুন</button>
+      </div>
+    )}
   </Card>);
 }
 
@@ -1182,7 +1261,20 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
   STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const peerObservations=obsData.peerObservations||[];
   const [mode,setMode]=useState("new"); // new | history
-  const [observedTeacher,setObservedTeacher]=useState(TEACHERS.find(t=>t!==currentUser&&!ATT_REVIEW_EXCLUDED.includes(t))||TEACHERS[0]);
+  const eligibleTeachers=TEACHERS.filter(t=>(isAdmin||t!==currentUser)&&!ATT_REVIEW_EXCLUDED.includes(t));
+
+  // ── FIX: সম্পর্ক-ভিত্তিক পক্ষপাত কমাতে — যাকে সবচেয়ে বেশিদিন কেউ পর্যবেক্ষণ করেননি, তাকেই
+  // ডিফল্টভাবে প্রস্তাব করা হয় (সবসময় "প্রিয়" সহকর্মীকে বেছে নেওয়ার প্রবণতা কমাতে)। শিক্ষক
+  // চাইলে বদলাতে পারবেন, কিন্তু ডিফল্ট + তালিকার ক্রম স্কুলজুড়ে ন্যায্য কভারেজের দিকে ঠেলে দেয়।
+  const daysSinceObserved=(t)=>{
+    const got=peerObservations.filter(o=>o.observedTeacher===t);
+    if(!got.length)return Infinity; // কখনো পর্যবেক্ষণ হয়নি — সর্বোচ্চ অগ্রাধিকার
+    const latest=Math.max(...got.map(o=>o.dateISO?new Date(o.dateISO).getTime():0));
+    return Math.floor((Date.now()-latest)/86400000);
+  };
+  const sortedByStaleness=[...eligibleTeachers].sort((a,b)=>daysSinceObserved(b)-daysSinceObserved(a));
+
+  const [observedTeacher,setObservedTeacher]=useState(sortedByStaleness[0]||eligibleTeachers[0]||TEACHERS[0]);
   const [cls,setCls]=useState(Object.keys(STUDENTS)[0]);
   const [subject,setSubject]=useState(SUBJECTS_BY_CLASS[Object.keys(STUDENTS)[0]]?.[0]||SUBJECTS[0]);
   const [showForm,setShowForm]=useState(false);
@@ -1190,7 +1282,10 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
   const today=new Date().toLocaleDateString("bn-BD");
   const todayISO=new Date().toISOString().slice(0,10);
 
-  const addObservation=({scores,strengths,improvements,totalScore})=>{
+  const myPastObsOfSelected=peerObservations.filter(o=>o.observerTeacher===currentUser&&o.observedTeacher===observedTeacher).length;
+  const selectedDaysStale=daysSinceObserved(observedTeacher);
+
+  const addObservation=({scores,evidence,strengths,improvements,observerTakeaway,totalScore})=>{
     const rec={
       id:Date.now().toString()+"_pobs",
       observerTeacher:currentUser,
@@ -1200,8 +1295,11 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
       cls,
       subject,
       scores,
+      evidence,
       strengths,
       improvements,
+      observerTakeaway,
+      observedReflection:"",
       totalScore,
       isAdminObs:isAdmin,
     };
@@ -1216,6 +1314,14 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
     setObsData(prev=>({...prev,peerObservations:(prev.peerObservations||[]).filter(o=>o.id!==id)}));
   };
 
+  // ── মিউচুয়াল বেনিফিট: পর্যবেক্ষিত শিক্ষক নিজের প্রতিফলন যোগ করলে সংরক্ষণ ──
+  const saveReflection=(id,text)=>{
+    const updated=peerObservations.map(o=>o.id===id?{...o,observedReflection:text}:o);
+    const rec=updated.find(o=>o.id===id);
+    fbSavePeerObservation(rec); // granular Firebase write (আপডেটেড রেকর্ড)
+    setObsData(prev=>({...prev,peerObservations:updated}));
+  };
+
   const myObservations=peerObservations.filter(o=>o.observerTeacher===currentUser);
   const myReceivedObservations=peerObservations.filter(o=>o.observedTeacher===currentUser);
 
@@ -1226,6 +1332,12 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
     return t>=sevenDaysAgo;
   }).map(o=>o.observerTeacher));
   const nonObservers=TEACHERS.filter(t=>!recentObservers.has(t));
+
+  // ── FIX: রেটার-লিনিয়েন্সি (উদারতা) স্বচ্ছতা রিপোর্ট, শুধু অ্যাডমিনদের জন্য ──
+  // একজন পর্যবেক্ষক নিয়মিত অন্যদের চেয়ে অনেক বেশি নম্বর দিলে (সম্পর্কজনিত পক্ষপাতের সম্ভাব্য
+  // লক্ষণ), সেটা এখানে স্পষ্টভাবে চিহ্নিত হবে — যাতে অ্যাডমিন প্যাটার্নটা দেখে যাচাই করতে পারেন।
+  const allScoresGiven=peerObservations.map(o=>o.totalScore);
+  const overallAvgGiven=allScoresGiven.length?allScoresGiven.reduce((a,b)=>a+b,0)/allScoresGiven.length:null;
 
   return(<div>
     <H2>🔭 ক্লাস পর্যবেক্ষণ (Peer Observation)</H2>
@@ -1238,14 +1350,19 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
     {mode==="new"&&!showForm&&(<Card>
       <H3>{isAdmin?"🛡 অ্যাডমিন পর্যবেক্ষণ ফর্ম":"👩‍🏫 শিক্ষকের পর্যবেক্ষণ ফর্ম"}</H3>
       <div style={{fontSize:12,color:C.mu,marginBottom:10}}>
-        {isAdmin?"একাডেমিক ইনচার্জ হিসেবে আপনি যেকোনো শিক্ষকের ক্লাস পর্যবেক্ষণ করতে পারবেন।":"আপনি অন্য একজন শিক্ষকের ক্লাস পর্যবেক্ষণ করবেন।"}
+        {isAdmin?"একাডেমিক ইনচার্জ হিসেবে আপনি যেকোনো শিক্ষকের ক্লাস পর্যবেক্ষণ করতে পারবেন।":"আপনি অন্য একজন শিক্ষকের ক্লাস পর্যবেক্ষণ করবেন। যাকে সবচেয়ে বেশিদিন কেউ পর্যবেক্ষণ করেননি তাকে ডিফল্টভাবে দেখানো হচ্ছে — ন্যায্য কভারেজের স্বার্থে।"}
       </div>
-      <div style={{marginBottom:8}}>
+      <div style={{marginBottom:6}}>
         <div style={{fontSize:11,color:C.mu,marginBottom:3}}>পর্যবেক্ষিত শিক্ষক</div>
         <select value={observedTeacher} onChange={e=>setObservedTeacher(e.target.value)} style={{width:"100%"}}>
-          {TEACHERS.filter(t=>(isAdmin||t!==currentUser)&&!ATT_REVIEW_EXCLUDED.includes(t)).map(t=><option key={t} value={t}>{t}</option>)}
+          {sortedByStaleness.map(t=><option key={t} value={t}>{t}{daysSinceObserved(t)===Infinity?" (কখনো হয়নি)":` (${daysSinceObserved(t)} দিন আগে)`}</option>)}
         </select>
       </div>
+      {myPastObsOfSelected>=2&&(
+        <div style={{background:C.amL,border:`1px solid ${C.am}40`,borderRadius:8,padding:"6px 10px",marginBottom:8,fontSize:11,color:C.am,fontWeight:600}}>
+          ⚠️ আপনি ইতিমধ্যে {observedTeacher}-কে {myPastObsOfSelected} বার পর্যবেক্ষণ করেছেন। বৈচিত্র্যের জন্য অন্য কাউকে বেছে নেওয়ার কথা বিবেচনা করুন।
+        </div>
+      )}
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <div style={{flex:1}}>
           <div style={{fontSize:11,color:C.mu,marginBottom:3}}>শ্রেণি</div>
@@ -1274,11 +1391,11 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
       </div>
       <H3>👁 আমি যেসব ক্লাস পর্যবেক্ষণ করেছি</H3>
       {myObservations.length===0&&<div style={{textAlign:"center",color:C.mu,padding:14,fontSize:12}}>এখনো কোনো পর্যবেক্ষণ করেননি</div>}
-      {[...myObservations].reverse().map(rec=><PeerObservationReportCard key={rec.id} rec={rec} onDelete={deleteObservation}/>)}
+      {[...myObservations].reverse().map(rec=><PeerObservationReportCard key={rec.id} rec={rec} onDelete={deleteObservation} currentUser={currentUser}/>)}
 
       <H3 style={{marginTop:14}}>🎯 আমার ক্লাস যেসব পর্যবেক্ষণ হয়েছে</H3>
       {myReceivedObservations.length===0&&<div style={{textAlign:"center",color:C.mu,padding:14,fontSize:12}}>এখনো কোনো পর্যবেক্ষণ হয়নি</div>}
-      {[...myReceivedObservations].reverse().map(rec=><PeerObservationReportCard key={rec.id} rec={rec}/>)}
+      {[...myReceivedObservations].reverse().map(rec=><PeerObservationReportCard key={rec.id} rec={rec} currentUser={currentUser} onReflect={saveReflection}/>)}
     </div>)}
 
     {isAdmin&&(<Card style={{marginTop:14}}>
@@ -1292,21 +1409,26 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
         </div>
       )}
       <table style={{marginTop:12}}>
-        <thead><tr><th>শিক্ষক</th><th>করেছেন</th><th>হয়েছেন</th><th>গড় স্কোর</th></tr></thead>
+        <thead><tr><th>শিক্ষক</th><th>করেছেন</th><th>হয়েছেন</th><th>গড় স্কোর (প্রাপ্ত)</th><th>গড় স্কোর (প্রদত্ত)</th></tr></thead>
         <tbody>
           {TEACHERS.map(t=>{
-            const did=peerObservations.filter(o=>o.observerTeacher===t).length;
+            const did=peerObservations.filter(o=>o.observerTeacher===t);
             const got=peerObservations.filter(o=>o.observedTeacher===t);
             const avgScore=got.length?Math.round(got.reduce((a,b)=>a+b.totalScore,0)/got.length):null;
+            const avgGiven=did.length?Math.round(did.reduce((a,b)=>a+b.totalScore,0)/did.length):null;
+            // ── উদারতা/কঠোরতা ফ্ল্যাগ: ≥৩টা পর্যবেক্ষণ দিয়েছেন এবং স্কুল-গড় থেকে ১৫+ পয়েন্ট বেশি/কম ──
+            const isLenientOutlier=avgGiven!==null&&did.length>=3&&overallAvgGiven!==null&&Math.abs(avgGiven-overallAvgGiven)>=15;
             return(<tr key={t}>
               <td style={{fontSize:12,fontWeight:600,color:recentObservers.has(t)?C.tx:C.re}}>{t}{!recentObservers.has(t)&&" ⚠"}</td>
-              <td style={{color:C.pu,fontWeight:700}}>{did}</td>
+              <td style={{color:C.pu,fontWeight:700}}>{did.length}</td>
               <td style={{color:C.te,fontWeight:700}}>{got.length}</td>
               <td style={{color:avgScore===null?C.mu:avgScore>=70?C.gr:avgScore>=50?C.am:C.re,fontWeight:700}}>{avgScore===null?"—":avgScore}</td>
+              <td style={{color:avgGiven===null?C.mu:isLenientOutlier?C.re:C.tx,fontWeight:700}}>{avgGiven===null?"—":avgGiven}{isLenientOutlier&&` ⚠️(${avgGiven>overallAvgGiven?"উদার":"কঠোর"})`}</td>
             </tr>);
           })}
         </tbody>
       </table>
+      <div style={{fontSize:10,color:C.mu,marginTop:8}}>💡 "গড় স্কোর (প্রদত্ত)" কলাম দেখায় একজন শিক্ষক পর্যবেক্ষক হিসেবে গড়ে কত নম্বর দেন। স্কুল-গড় থেকে বড় ব্যবধান (⚠️) সম্পর্কভিত্তিক পক্ষপাতের সম্ভাব্য লক্ষণ — নিশ্চিত প্রমাণ না, তবে যাচাই করার মতো একটা প্যাটার্ন।</div>
     </Card>)}
   </div>);
 }
@@ -1855,10 +1977,12 @@ function computeGroupFactors(allRes, groupKeyFn){
   const FACTOR_MIN=0.75, FACTOR_MAX=1.35; // চরম মান ঠেকাতে সীমা
   const groupStats={};
   const byGroupStudent={};
+  const groupTeachers={}; // FIX #6: প্রতিটি গ্রুপে কতজন ভিন্ন শিক্ষক পড়ান তা ট্র্যাক করা
   allRes.filter(r=>!r.absent).forEach(r=>{
     const g=groupKeyFn(r);
     const key=`${g}__${r.name}__${r.subject}`;
     (byGroupStudent[key]=byGroupStudent[key]||[]).push(r);
+    (groupTeachers[g]=groupTeachers[g]||new Set()).add(r.teacher);
   });
   Object.values(byGroupStudent).forEach(entries=>{
     const g=groupKeyFn(entries[0]);
@@ -1897,6 +2021,13 @@ function computeGroupFactors(allRes, groupKeyFn){
   return function groupFactor(g,type){
     const st=groupStats[g];
     if(!st)return 1;
+    // ── FIX #6: self-referential normalization প্রতিরোধ ──
+    // যদি একটা বিষয়/ক্লাসে মাত্র ১ জন শিক্ষক পড়ান, তাহলে সেই গ্রুপের "গড়" আসলে তার নিজেরই
+    // পারফরম্যান্স। তখন factor হিসাব করলে শিক্ষক নিজের সাথে নিজেকে তুলনা করে ফ্যাক্টর পেয়ে যান —
+    // যা "বিষয়টা কঠিন/সহজ" বনাম "এই শিক্ষক দুর্বল/ভালো" — এই দুটোকে আলাদা করতে পারে না। তাই অন্তত
+    // ২ জন ভিন্ন শিক্ষক না থাকলে কোনো সমন্বয় (factor=1, অর্থাৎ নিরপেক্ষ) করা হবে না।
+    const distinctTeachers=(groupTeachers[g]||new Set()).size;
+    if(distinctTeachers<2)return 1;
     let cnt=0,anchor=0,gAvg=0;
     if(type==="imp"){cnt=st.impCount;anchor=anchorImp;gAvg=st.impCount?st.impSum/st.impCount:0;}
     else if(type==="weak"){cnt=st.impCount;anchor=anchorWeak;gAvg=st.impCount?st.weakSum/st.impCount:0;}
@@ -1929,6 +2060,14 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   // তাই raw সংখ্যা দিয়ে বিচার করলে বেশি-সাবজেক্টের শিক্ষক অন্যায্যভাবে দ্রুত ক্যাপে পৌঁছে যান ──
   const assignmentCount=Math.max(1,(teacherSubjects[teacher]||[]).length);
   const obs=obsData[teacher]||{};
+  // ── AIC (একাডেমিক ইনচার্জ) ব্যক্তিগত পর্যবেক্ষণ ──
+  // শুধুমাত্র ADMIN_TEACHER (একাডেমিক ইনচার্জ) নিজে এই ডেটা দিতে/দেখতে পারেন। প্রতি ১০ দিনে
+  // সর্বোচ্চ একবার এন্ট্রি হয়; সাম্প্রতিক ৩টি এন্ট্রি (~৩০ দিনের চক্র) নিয়ে গড় করা হয়।
+  const aicList=obs.aicObservations||[];
+  const sortedAic=[...aicList].sort((a,b)=>new Date(b.dateISO)-new Date(a.dateISO));
+  const recentAic=sortedAic.slice(0,3);
+  const hasAicData=recentAic.length>0;
+  const aicScore=hasAicData?Math.round(recentAic.reduce((a,b)=>a+(b.score||0),0)/recentAic.length):0;
 
   // ডেডলাইন পেনাল্টি
   const {missed:dlMissed,total:dlTotal,rate:dlRate}=calcDeadlinePenalty(teacher,deadlines,dlSubmissions);
@@ -2013,6 +2152,17 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
 
   const hasObsData=(attList.length+insList.length+sylList.length+fbList.length+trainingList.length)>0;
   const hasDlData=dlTotal>0;
+  // ── FIX: obsAvg শুধু যেসব ক্যাটাগরিতে আসলে ডেটা আছে, শুধু সেগুলোর গড় হবে ──
+  // আগে ৫টা ক্যাটাগরির গড় নেওয়া হতো, ডেটা-না-থাকা ক্যাটাগরিকে ০ ধরে — ফলে আংশিক পর্যবেক্ষণ
+  // ডেটা থাকা শিক্ষক (যেমন শুধু সিলেবাস এন্ট্রি আছে) শাস্তি পেতেন, আর কোনো ডেটাই না-থাকা শিক্ষক
+  // (যিনি এই ২৫% ওজন থেকে সম্পূর্ণ বাদ পড়তেন) তুলনামূলক লাভবান হতেন। এখন শুধু বিদ্যমান
+  // ক্যাটাগরিগুলোর গড় নেওয়া হয়, তাই কম পর্যবেক্ষিত হওয়া আর সুবিধাজনক নয়।
+  const obsComponents=[];
+  if(attList.length>0)obsComponents.push(attScore);
+  if(insList.length>0)obsComponents.push(insScore);
+  if(sylList.length>0)obsComponents.push(sylScore);
+  if(fbList.length>0)obsComponents.push(fbScore);
+  if(trainingList.length>0)obsComponents.push(trainingScore);
 
   // ── পিয়ার ক্লাস পর্যবেক্ষণ (peerObservations) ──
   const peerObs=obsData.peerObservations||[];
@@ -2024,12 +2174,25 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
     return t>=sevenDaysAgo;
   });
   const hasAnyPeerObsData=peerObs.length>0;
-  const peerObsParticipationScore=hasAnyPeerObsData?(observedThisWeek?5:-5):0;
+  // ── FIX #4: রোটেশন-নির্ভরতা ──
+  // আগে peerObsParticipationScore নির্ভর করত hasAnyPeerObsData-এর উপর — স্কুলে যেকারো একটা
+  // পর্যবেক্ষণ থাকলেই সবাই এই ±৫-এর আওতায় পড়ে যেতেন, এমনকি যার পর্যবেক্ষক হওয়ার পালাই ছিল না।
+  // এখন এটা শুধু তাদের ক্ষেত্রে প্রযোজ্য যারা অতীতে অন্তত একবার পর্যবেক্ষক হিসেবে অংশ নিয়েছেন
+  // (প্রমাণ করে তিনি এই রোটেশনের অংশ) — অন্য কারো করা পর্যবেক্ষণের ভিত্তিতে নয়।
+  const hasEverObserved=myObserverEntries.length>0;
+  const peerObsParticipationScore=hasEverObserved?(observedThisWeek?5:-5):0;
 
   // এই শিক্ষক পর্যবেক্ষিত হিসেবে — প্রাপ্ত সব পর্যবেক্ষণের গড় স্কোর ("ক্লাস মান")
   const myReceivedEntries=peerObs.filter(o=>o.observedTeacher===teacher);
-  const classQualityScore=myReceivedEntries.length?Math.round(myReceivedEntries.reduce((a,b)=>a+(b.totalScore||0),0)/myReceivedEntries.length):null;
-  const hasClassQualityData=classQualityScore!==null;
+  const rawClassQualityScore=myReceivedEntries.length?Math.round(myReceivedEntries.reduce((a,b)=>a+(b.totalScore||0),0)/myReceivedEntries.length):null;
+  const hasClassQualityData=rawClassQualityScore!==null;
+  // ── FIX: sample-size শ্রিংকেজ — avgImp/avgCons এর মতোই ──
+  // আগে ১টা মাত্র পিয়ার-পর্যবেক্ষণও সরাসরি ১৫% ওজন পেত, যা এলোমেলো/একবারের রায়ের উপর
+  // ভিত্তি করে র‍্যাংকিং বদলে দিতে পারত। এখন কম পর্যবেক্ষণ সংখ্যা থাকলে একটা নিরপেক্ষ
+  // বেসলাইনের (৫৫) দিকে টানা হয় — যত বেশি পর্যবেক্ষণ, তত বেশি আস্থা।
+  const CQ_SHRINK_K=5, CQ_NEUTRAL=55;
+  const cqConf=hasClassQualityData?Math.min(1,myReceivedEntries.length/CQ_SHRINK_K):0;
+  const classQualityScore=hasClassQualityData?Math.round(rawClassQualityScore*cqConf+CQ_NEUTRAL*(1-cqConf)):null;
 
   // একটিমাত্র এন্ট্রি থাকলেও consistency স্কোর হিসাব (improvement-এর জন্য ২টি লাগে)
   const singleEntries=Object.values(studentMap).filter(e=>e.length===1);
@@ -2043,7 +2206,7 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   const totalEntryCount=entryCount+singleEntries.length;
   const totalConsScore=consistencyScore+singleConsScore;
 
-  if(totalEntryCount===0&&lp===0&&!hasObsData&&!hasAnyPeerObsData)return{score:0,grade:"—",impScore:0,weakBonus:0,consScore:0,lpScore:0,attScore:0,insScore:0,sylScore:0,fbScore:0,trainingScore:0,dlScore:100,dlMissed:0,dlTotal:0,count:tr.length,lp,breakdown:[]};
+  if(totalEntryCount===0&&lp===0&&!hasObsData&&!hasAnyPeerObsData&&!hasAicData)return{score:0,grade:"—",impScore:0,weakBonus:0,consScore:0,lpScore:0,attScore:0,insScore:0,sylScore:0,fbScore:0,trainingScore:0,dlScore:100,dlMissed:0,dlTotal:0,count:tr.length,lp,breakdown:[]};
 
   const avgImpRaw=entryCount?Math.min(100,Math.round(improvementScore/entryCount)):0;
   const avgWeakRaw=entryCount?Math.min(100,Math.round(weakStudentBonus/entryCount)):0;
@@ -2071,18 +2234,21 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   const lpTarget=10*assignmentCount;
   const lpScore=Math.min(100,Math.round((lp/lpTarget)*100));
 
-  // ডেডলাইন penalty: miss করলে স্কোর কমে
-  const dlPenalty=hasDlData?Math.round((100-dlScore)*0.15):0; // সর্বোচ্চ ১৫ পয়েন্ট কাটা
+  // ── FIX: ডেডলাইন পেনাল্টি ডাবল-কাউন্ট হচ্ছিল ──
+  // আগে dlScore একবার ওজনভিত্তিক গড়ে ১০% হিসেবে ঢুকত, তারপর আলাদাভাবে আরও সরাসরি
+  // (100-dlScore)*0.15 পয়েন্ট কাটা হতো — মানে সম্পূর্ণ ডেডলাইন মিস করলে মোট ~২৫ পয়েন্ট ক্ষতি
+  // হতো, যেখানে ওজন অনুযায়ী তার প্রাপ্য ছিল ১০ পয়েন্ট। এখন dlScore শুধু একবারই, তার নির্ধারিত
+  // ১০% ওজনে, চূড়ান্ত স্কোরে প্রভাব ফেলে।
 
   // ওজনভিত্তিক চূড়ান্ত স্কোর (obs data যুক্ত হলে ওজন পুনর্বণ্টন)
   let rawScore;
   if(hasObsData){
-    const obsAvg=Math.round((attScore+insScore+sylScore+fbScore+trainingScore)/5);
+    const obsAvg=obsComponents.length?Math.round(obsComponents.reduce((a,b)=>a+b,0)/obsComponents.length):0;
     rawScore=Math.min(100,Math.round(avgImp*0.28+avgWeak*0.18+avgCons*0.14+lpScore*0.05+obsAvg*0.25+dlScore*0.10));
   } else {
     rawScore=Math.min(100,Math.round(avgImp*0.38+avgWeak*0.28+avgCons*0.19+lpScore*0.05+dlScore*0.10));
   }
-  const finalScoreBase=Math.max(0,rawScore-dlPenalty);
+  const finalScoreBase=rawScore;
 
   // ক্লাস মান (peer observation গড় স্কোর) — ১৫% ওজনে যুক্ত হবে
   const finalScoreWithQuality=hasClassQualityData
@@ -2097,17 +2263,29 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   // অন্যায্য সুবিধা না পান। কিন্তু বেশি ক্লাস/বিষয় সামলানো সত্যিকারের বাড়তি পরিশ্রম — সেটা উপেক্ষা করাও
   // ঠিক না। তাই স্কুলের গড় ওয়ার্কলোডের তুলনায় যিনি বেশি দায়িত্বে আছেন, তিনি একটা ছোট, আলাদা বোনাস
   // পাবেন — মূল যোগ্যতা-স্কোর (avgImp/avgCons ইত্যাদি) অপরিবর্তিত রেখে। ইচ্ছাকৃতভাবে ছোট রাখা হয়েছে
-  // (সর্বোচ্চ +৬, সর্বনিম্ন -৩), যাতে "বেশি ক্লাস নিলেই ভালো শিক্ষক" — এই ভুল বার্তা না যায়; এটা স্বীকৃতি,
+  // (সর্বোচ্চ +৬, সর্বনিম্ন ০ — নিচে ফিক্স #৫ দ্রষ্টব্য), যাতে "বেশি ক্লাস নিলেই ভালো শিক্ষক" — এই ভুল বার্তা না যায়; এটা স্বীকৃতি,
   // যোগ্যতার বিকল্প না।
   const allAssignmentCounts=TEACHERS.map(t=>(teacherSubjects[t]||[]).length).filter(c=>c>0);
   const avgAssignment=allAssignmentCounts.length?allAssignmentCounts.reduce((a,b)=>a+b,0)/allAssignmentCounts.length:assignmentCount;
   const workloadRatio=avgAssignment>0?assignmentCount/avgAssignment:1;
-  const workloadBonus=Math.max(-3,Math.min(6,Math.round((workloadRatio-1)*6)));
+  // ── FIX #5: workloadBonus আর penalty দেবে না, শুধু bonus ──
+  // সাবজেক্ট/ক্লাস কতগুলো বরাদ্দ হবে সেটা প্রশাসন ঠিক করে, শিক্ষক নিজে বেছে নেন না। তাই স্কুল-গড়ের
+  // চেয়ে কম দায়িত্বে থাকা শিক্ষককে -৩ পয়েন্ট শাস্তি দেওয়াটা তার নিয়ন্ত্রণের বাইরের একটা বিষয়ের জন্য
+  // পেনাল্টি — এটা অন্যায্য। বেশি দায়িত্ব পালনের জন্য বোনাস (+৬ পর্যন্ত) থাকবে, কিন্তু কম দায়িত্বের জন্য
+  // আর কোনো নেতিবাচক প্রভাব পড়বে না (floor = ০)।
+  const workloadBonus=Math.max(0,Math.min(6,Math.round((workloadRatio-1)*6)));
 
   // পর্যবেক্ষণ অংশগ্রহণ বোনাস/পেনাল্টি (+5/-5) + পরীক্ষা নেওয়া বোনাস/পেনাল্টি + কর্মভার বোনাস
   const finalScore=Math.max(0,Math.min(100,finalScoreWithQuality+peerObsParticipationScore+examNetScore+workloadBonus));
 
-  const grade=finalScore>=85?"A+":finalScore>=70?"A":finalScore>=55?"B":finalScore>=40?"C":finalScore>0?"D":"—";
+  // ── AIC (একাডেমিক ইনচার্জ) পর্যবেক্ষণ — ৯০/১০ ব্লেন্ড ──
+  // এই ডেটা গোপনীয় — শুধু ADMIN_TEACHER দেন ও দেখেন, তাই ইচ্ছাকৃতভাবে breakdown-এ যুক্ত করা হয়নি
+  // (KPI পেজ অন্য অ্যাডমিনরাও দেখেন)। তবে চূড়ান্ত স্কোরে এর প্রভাব থাকবে, যেহেতু র‍্যাংকিং সবাই দেখেন।
+  const finalScoreWithAic=hasAicData
+    ?Math.max(0,Math.min(100,Math.round(finalScore*0.90+aicScore*0.10)))
+    :finalScore;
+
+  const grade=finalScoreWithAic>=85?"A+":finalScoreWithAic>=70?"A":finalScoreWithAic>=55?"B":finalScoreWithAic>=40?"C":finalScoreWithAic>0?"D":"—";
 
   const breakdown=[
     {label:"ছাত্র উন্নতি",value:avgImp,weight:hasObsData?28:38,color:C.gr},
@@ -2126,7 +2304,7 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
   if(hasClassQualityData){
     breakdown.push({label:"ক্লাস মান (পিয়ার পর্যবেক্ষণ)",value:classQualityScore,weight:15,color:classQualityScore>=70?C.gr:classQualityScore>=50?C.am:C.re});
   }
-  if(hasAnyPeerObsData){
+  if(hasEverObserved){
     breakdown.push({label:"পর্যবেক্ষণ অংশগ্রহণ",value:peerObsParticipationScore,weight:0,color:peerObsParticipationScore>0?C.gr:C.re,isBonus:true});
   }
   if(teacherExams.length>0){
@@ -2140,11 +2318,12 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
       sub:`${assignmentCount}টি দায়িত্ব (স্কুল গড়: ${avgAssignment.toFixed(1)}টি)`});
   }
 
-  return{score:finalScore,grade,impScore:avgImp,weakBonus:avgWeak,consScore:avgCons,lpScore,
+  return{score:finalScoreWithAic,grade,impScore:avgImp,weakBonus:avgWeak,consScore:avgCons,lpScore,
     attScore,insScore,sylScore,fbScore,trainingScore,dlScore,dlMissed,dlTotal,hasObsData,hasDlData,
-    classQualityScore,hasClassQualityData,peerObsParticipationScore,hasAnyPeerObsData,observedThisWeek,
+    classQualityScore,hasClassQualityData,peerObsParticipationScore,hasAnyPeerObsData,hasEverObserved,observedThisWeek,
     examTaken,examNotTaken,examExcused,examPending,examNetScore,
     assignmentCount,avgAssignment,workloadBonus,
+    hasAicData,aicScore,preAicScore:finalScore,
     entryCount,totalEntryCount,lowSample,sampleConfidence:Math.round(Math.min(impConf,consConf)*100),
     count:tr.length,lp,breakdown};
 }
@@ -7351,14 +7530,14 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   // পুরনো (non-weekly) plan
   const oldPlans=useMemo(()=>(lessonPlans._v2||[]).filter(p=>p.type!=="weekly"),[lessonPlans]);
 
+  // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
+  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
+
   // শিক্ষকের নির্ধারিত বিষয়+শ্রেণি
   const myAssignments=useMemo(()=>{
     if(isAdmin)return[];
     return getTeacherAssignments(effectiveTeacher,teacherSubjects);
   },[isAdmin,effectiveTeacher,teacherSubjects]);
-
-  // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
-  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
   const submittedThisWeek=useMemo(()=>{
     if(!effectiveTeacher)return{};
     const map={};
@@ -7899,6 +8078,156 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
     </div>)}
   </div>);
 }
+
+/* ══════════════════════════════════════════════
+   ★★★ AIC OBSERVATION — একাডেমিক ইনচার্জের ব্যক্তিগত পর্যবেক্ষণ ★★★
+   শুধুমাত্র ADMIN_TEACHER (একাডেমিক ইনচার্জ) দেখতে ও দিতে পারবেন — অন্য কোনো অ্যাডমিন, শিক্ষক
+   বা ব্যবহারকারী না। calcKPI() সাম্প্রতিক সর্বোচ্চ ৩টি এন্ট্রি নিয়ে গড় করে, চূড়ান্ত KPI স্কোরের
+   ১০% ওজনে যুক্ত করে — জমা দেওয়ার সাথে সাথেই স্বয়ংক্রিয়ভাবে। এই রেটিং/নোট breakdown-এ
+   দেখানো হয় না, তাই অন্য কোনো অ্যাডমিন KPI পেজে গেলেও দেখতে পাবেন না।
+
+   ── বায়াস-প্রতিরোধী কাঠামো ──
+   একটামাত্র মুক্ত-স্কেল স্কোরের বদলে, ৫টি সুনির্দিষ্ট আচরণগত মানদণ্ডে আলাদাভাবে রেট করতে হয়
+   (সামগ্রিক পারফরম্যান্স ও শৃঙ্খলা-কেন্দ্রিক), প্রতিটির নির্দিষ্ট আচরণগত বর্ণনা সহ — যাতে
+   "ব্যক্তিগত পছন্দ" নয়, পর্যবেক্ষিত আচরণের ভিত্তিতে নম্বর দেওয়া হয়। চূড়ান্ত স্কোর এই ৫টির
+   গড় থেকে গাণিতিকভাবে হিসাব হয়, সরাসরি এডিট করার কোনো উপায় নেই। কোনো মানদণ্ডে চরম রেটিং
+   (১ বা ৫) দিলে একটা লিখিত উদাহরণ/ব্যাখ্যা বাধ্যতামূলক — এটা impulsive বা পক্ষপাতদুষ্ট
+   extreme রেটিং ঠেকাতে সাহায্য করে।
+══════════════════════════════════════════════ */
+const AIC_CRITERIA=[
+  {key:"punctuality",label:"সময়ানুবর্তিতা",desc:"নির্ধারিত সময়ে ক্লাস, ডিউটি ও দায়িত্বে উপস্থিত হওয়া"},
+  {key:"teaching",label:"পাঠদানের মান ও প্রস্তুতি",desc:"পরিদর্শনকালে পাঠ পরিকল্পনা, উপস্থাপনা ও ছাত্র-সম্পৃক্ততার মান"},
+  {key:"compliance",label:"নির্দেশনা ও নিয়ম মান্যতা",desc:"স্কুলের সিদ্ধান্ত, নিয়মকানুন ও নির্দেশনা যথাযথভাবে পালন"},
+  {key:"conduct",label:"পেশাদার আচরণ ও সম্পর্ক",desc:"সহকর্মী, ছাত্র ও অভিভাবকদের সাথে পেশাদার আচরণ"},
+  {key:"initiative",label:"দায়িত্বশীলতা ও উদ্যোগ",desc:"নির্ধারিত কাজের বাইরেও সহযোগিতা, দায়িত্ব নেওয়া ও উদ্যোগ"}
+];
+const AIC_LEVELS=[
+  {v:1,label:"উল্লেখযোগ্য ঘাটতি"},
+  {v:2,label:"উন্নতি প্রয়োজন"},
+  {v:3,label:"সন্তোষজনক"},
+  {v:4,label:"ভালো"},
+  {v:5,label:"অনুকরণীয়"}
+];
+const AIC_DEFAULT_CRITERIA=()=>({punctuality:3,teaching:3,compliance:3,conduct:3,initiative:3});
+
+function AICObservation({obsData,setObsData,currentUser}){
+  const evalTeachers=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t));
+  const [selTeacher,setSelTeacher]=useState(evalTeachers[0]||"");
+  const [criteria,setCriteria]=useState(AIC_DEFAULT_CRITERIA());
+  const [note,setNote]=useState("");
+
+  if(currentUser!==ADMIN_TEACHER){
+    return(<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>);
+  }
+
+  const obs=obsData[selTeacher]||{};
+  const aicList=obs.aicObservations||[];
+  const sorted=[...aicList].sort((a,b)=>new Date(b.dateISO)-new Date(a.dateISO));
+  const last=sorted[0];
+  const daysSinceLast=last?Math.floor((Date.now()-new Date(last.dateISO).getTime())/86400000):null;
+
+  // ── চূড়ান্ত স্কোর সবসময় ৫টি মানদণ্ডের গড় থেকে গাণিতিকভাবে বের হয় — সরাসরি এডিটযোগ্য না ──
+  const avgCriteria=AIC_CRITERIA.reduce((a,c)=>a+criteria[c.key],0)/AIC_CRITERIA.length;
+  const computedScore=Math.round(avgCriteria*20); // ১-৫ স্কেল → ০-১০০
+  const hasExtreme=AIC_CRITERIA.some(c=>criteria[c.key]===1||criteria[c.key]===5);
+  const noteOk=!hasExtreme||note.trim().length>=10;
+
+  const persist=(updatedList)=>{
+    const updated={...obs,aicObservations:updatedList};
+    setObsData(prev=>{
+      fbSaveObsData(selTeacher,updated); // granular Firebase write
+      return{...prev,[selTeacher]:updated};
+    });
+  };
+
+  const submit=()=>{
+    if(!selTeacher||!noteOk)return;
+    const rec={id:Date.now().toString(),score:computedScore,criteria:{...criteria},note:note.trim(),dateISO:new Date().toISOString()};
+    persist([...aicList,rec]);
+    setNote("");setCriteria(AIC_DEFAULT_CRITERIA());
+  };
+
+  const deleteObs=(id)=>persist(aicList.filter(o=>o.id!==id));
+
+  return(<div>
+    <H2>🔒 আমার ব্যক্তিগত পর্যবেক্ষণ</H2>
+    <Card style={{background:C.reL,border:`1px solid ${C.re}30`,marginBottom:10}}>
+      <div style={{fontSize:12,color:C.re,fontWeight:700}}>⚠️ শুধুমাত্র আপনি এই পেজ দেখতে পারবেন</div>
+      <div style={{fontSize:11,color:C.mu,marginTop:4}}>এই রেটিং ও নোট অন্য কোনো অ্যাডমিন, শিক্ষক বা ব্যবহারকারী দেখতে পাবেন না। নিচের ৫টি মানদণ্ড শিক্ষকের সামগ্রিক পারফরম্যান্স ও শৃঙ্খলা-কেন্দ্রিক — প্রতিটি আলাদাভাবে রেট করুন, চূড়ান্ত স্কোর এদের গড় থেকে স্বয়ংক্রিয়ভাবে বের হবে। জমা দেওয়ার সাথে সাথেই এটা KPI স্কোরে (সাম্প্রতিক সর্বোচ্চ ৩টি এন্ট্রির গড়, ১০% ওজনে) যুক্ত হয়ে যাবে।</div>
+    </Card>
+
+    <Card style={{padding:"10px 12px",marginBottom:10}}>
+      <div style={{fontSize:12,color:C.mu,marginBottom:5}}>শিক্ষক নির্বাচন</div>
+      <select value={selTeacher} onChange={e=>{setSelTeacher(e.target.value);setCriteria(AIC_DEFAULT_CRITERIA());setNote("");}} style={{width:"100%"}}>
+        {evalTeachers.map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
+    </Card>
+
+    {selTeacher&&(<Card style={{marginBottom:10}}>
+      <H3>নতুন পর্যবেক্ষণ — {selTeacher}</H3>
+      {last&&(
+        <div style={{background:C.puL,border:`1px solid ${C.pu}30`,borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:12,color:C.pu,fontWeight:600}}>
+          ℹ️ শেষ পর্যবেক্ষণ {daysSinceLast} দিন আগে দেওয়া হয়েছে
+        </div>
+      )}
+
+      {AIC_CRITERIA.map(c=>(
+        <div key={c.key} style={{marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.tx}}>{c.label}</div>
+          <div style={{fontSize:11,color:C.mu,marginBottom:6}}>{c.desc}</div>
+          <div style={{display:"flex",gap:6}}>
+            {AIC_LEVELS.map(lv=>(
+              <button key={lv.v} onClick={()=>setCriteria({...criteria,[c.key]:lv.v})}
+                style={{flex:1,padding:"8px 2px",borderRadius:8,border:`1px solid ${criteria[c.key]===lv.v?C.pu:C.bd}`,
+                  background:criteria[c.key]===lv.v?C.pu:"transparent",color:criteria[c.key]===lv.v?"#fff":C.mu,
+                  fontWeight:700,cursor:"pointer",fontSize:13}}>{lv.v}</button>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:C.mu,marginTop:4,textAlign:"right"}}>{AIC_LEVELS.find(lv=>lv.v===criteria[c.key])?.label}</div>
+        </div>
+      ))}
+
+      <div style={{background:C.puL,borderRadius:8,padding:"10px 12px",marginBottom:12,textAlign:"center"}}>
+        <div style={{fontSize:11,color:C.mu}}>স্বয়ংক্রিয়ভাবে গণনাকৃত চূড়ান্ত স্কোর (৫ মানদণ্ডের গড়)</div>
+        <div style={{fontSize:24,fontWeight:800,color:C.pu}}>{computedScore}/100</div>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:12,color:C.mu,marginBottom:5}}>
+          নোট / উদাহরণ {hasExtreme?<span style={{color:C.re,fontWeight:700}}>(বাধ্যতামূলক — অন্তত একটি মানদণ্ডে চরম রেটিং দেওয়া হয়েছে)</span>:"(ঐচ্ছিক, শুধু আপনি দেখবেন)"}
+        </div>
+        <textarea value={note} onChange={e=>setNote(e.target.value)} rows={3} placeholder="নির্দিষ্ট ঘটনা/উদাহরণ লিখুন..." style={{width:"100%",padding:8,borderRadius:8,border:`1px solid ${hasExtreme&&!noteOk?C.re:C.bd}`,fontSize:13,boxSizing:"border-box"}}/>
+      </div>
+
+      <button onClick={submit} disabled={!noteOk} style={{width:"100%",padding:"10px 0",borderRadius:8,border:"none",background:noteOk?C.pu:"#ccc",color:"#fff",fontWeight:700,cursor:noteOk?"pointer":"not-allowed",fontSize:13}}>
+        {noteOk?"✅ পর্যবেক্ষণ জমা দিন":"✍️ চরম রেটিংয়ের জন্য নোট লিখুন"}
+      </button>
+    </Card>)}
+
+    {selTeacher&&sorted.length>0&&(<Card>
+      <H3>পূর্বের পর্যবেক্ষণ — {selTeacher}</H3>
+      {sorted.map(o=>(
+        <div key={o.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.bd}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:12,color:C.mu}}>{new Date(o.dateISO).toLocaleDateString("bn-BD")}</span>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontWeight:700,color:o.score>=70?C.gr:o.score>=40?C.am:C.re}}>{o.score}/100</span>
+              <button onClick={()=>deleteObs(o.id)} style={{border:"none",background:"transparent",color:C.re,cursor:"pointer",fontSize:12}}>✕</button>
+            </div>
+          </div>
+          {o.criteria&&(
+            <div style={{fontSize:10,color:C.mu,marginTop:3}}>
+              {AIC_CRITERIA.map(c=>`${c.label}:${o.criteria[c.key]}`).join("  ·  ")}
+            </div>
+          )}
+          {o.note&&<div style={{fontSize:12,color:C.tx,marginTop:4}}>{o.note}</div>}
+        </div>
+      ))}
+      <div style={{fontSize:11,color:C.mu,marginTop:8}}>💡 KPI গণনায় সাম্প্রতিক সর্বোচ্চ ৩টি এন্ট্রি ব্যবহৃত হয় (গড় করে ১০% ওজনে)।</div>
+    </Card>)}
+  </div>);
+}
+
 
 /* ══════════════════════════════════════════════
    ★★★ UPCOMING EVENTS MODULE ★★★
@@ -9408,7 +9737,8 @@ const PAGES=[
   {id:"events",label:"📅 আপকামিং ইভেন্ট",adminOnly:false},
   {id:"arch",label:"🏛 আর্কিটেকচার",adminOnly:true},
   {id:"whitelist",label:"📋 অনুমোদিত Email",adminOnly:true},
-  {id:"coord",label:"👑 ইনচার্জ",adminOnly:true}
+  {id:"coord",label:"👑 ইনচার্জ",adminOnly:true},
+  {id:"aic_obs",label:"🔒 আমার পর্যবেক্ষণ",adminOnly:true}
 ];
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -10698,7 +11028,7 @@ function App(){
       </div>
     </div>
     <div style={{display:"flex",gap:4,overflowX:"auto",background:"#fff",padding:"8px 10px",borderBottom:`1px solid ${C.bd}`,WebkitOverflowScrolling:"touch"}}>
-      {PAGES.filter(p=>p.id==="coord"?currentUser===ADMIN_TEACHER:(!p.adminOnly||ADMIN_TEACHERS.includes(currentUser))).map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
+      {PAGES.filter(p=>(p.id==="coord"||p.id==="aic_obs")?currentUser===ADMIN_TEACHER:(!p.adminOnly||ADMIN_TEACHERS.includes(currentUser))).map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
     </div>
     <div style={{padding:"12px",maxWidth:700,margin:"0 auto"}}>
       {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={ADMIN_TEACHERS.includes(currentUser)} teacherSubjects={teacherSubjects} dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate}/>}
@@ -10715,6 +11045,7 @@ function App(){
       {page==="arch"        &&(ADMIN_TEACHERS.includes(currentUser)?<Architecture/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="whitelist"  &&(ADMIN_TEACHERS.includes(currentUser)?<WhitelistManager/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="coord"       &&(currentUser===ADMIN_TEACHER?<CoordinatorDashboard taskStatus={coordTaskStatus} onToggle={handleCoordToggle} onPageJump={handlePageChange}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
+      {page==="aic_obs"     &&(currentUser===ADMIN_TEACHER?<AICObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
     </div>
   </div>);
 }
