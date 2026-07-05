@@ -516,6 +516,83 @@ const getGrade=(m,fm=100,pm=33)=>{
   if(pct>=80)return["A+",C.gr];if(pct>=70)return["A",C.te];if(pct>=60)return["A-",C.te];
   if(pct>=50)return["B",C.am];if(pct>=40)return["C",C.am];return["D",C.co];
 };
+
+// ══════════════════════════════════════════════
+// ★★★ কম নম্বরের কারণ — শ্রেণিবিন্যাস ও শিক্ষক-উপদেশ ★★★
+// নিয়ম-ভিত্তিক (keyword + পরিসংখ্যান) বিশ্লেষণ — প্রকৃত AI/ভাষা-বোঝা না, তবে নিরাপদ (কোনো
+// বহিরাগত API/key লাগে না) এবং কার্যকর প্যাটার্ন ধরতে পারে।
+// ══════════════════════════════════════════════
+const REASON_TEACHING_KEYWORDS=["বুঝতে","বুঝাতে","ব্যাখ্যা","পড়ানো","শেখানো","পাঠদান","পুনরায় পড়ানো","আরও সময়","অতিরিক্ত ক্লাস","পদ্ধতি","দ্রুত শেষ","সময় কম ছিল"];
+const REASON_STUDENT_KEYWORDS=["অনুপস্থিত","পড়েনি","মনোযোগ","অমনোযোগী","বাসার সমস্যা","অসুস্থ","প্রস্তুতি","হোমওয়ার্ক করেনি","বাড়ির কাজ করেনি","অলসতা","খেলাধুলা","মোবাইল","পড়াশোনায় অনিয়মিত"];
+function classifyLowScoreReason(text){
+  const t=(text||"").trim();
+  if(t.length<15)return{category:"unclear",vague:true};
+  const teachHit=REASON_TEACHING_KEYWORDS.some(k=>t.includes(k));
+  const studHit=REASON_STUDENT_KEYWORDS.some(k=>t.includes(k));
+  if(teachHit&&!studHit)return{category:"teaching",vague:false};
+  if(studHit&&!teachHit)return{category:"student",vague:false};
+  if(teachHit&&studHit)return{category:"mixed",vague:false};
+  return{category:"unclear",vague:false};
+}
+// একজন শিক্ষকের কম-নম্বর প্যাটার্ন বিশ্লেষণ করে স্বয়ংক্রিয় পরামর্শ তৈরি করে
+function computeTeacherLowScoreAdvisory(teacher, allRes){
+  const mine=allRes.filter(r=>r.teacher===teacher&&!r.absent&&r.marks!=null);
+  if(!mine.length)return null;
+  const pctOf=r=>r.marks/(r.fullMarks||100)*100;
+  const myLow=mine.filter(r=>pctOf(r)<50);
+  if(myLow.length===0)return{myFailRate:0,myLowCount:0,myTotal:mine.length,othersFailRate:null,repeatFailStudents:0,reasonStats:{studentBlame:0,teachingBlame:0,mixedBlame:0,vagueCount:0,total:0,missingReasonCount:0},templateSuspect:false,advisory:null};
+  const myFailRate=Math.round(myLow.length/mine.length*100);
+
+  // একই বিষয়ে অন্য শিক্ষকদের গড় ফেল-হার (৫০%-এর নিচে) তুলনা
+  const subjectsTaught=[...new Set(mine.map(r=>r.subject))];
+  let otherLowTotal=0,otherTotal=0;
+  subjectsTaught.forEach(subject=>{
+    const subjRes=allRes.filter(r=>r.subject===subject&&r.teacher!==teacher&&!r.absent&&r.marks!=null);
+    otherTotal+=subjRes.length;
+    otherLowTotal+=subjRes.filter(r=>pctOf(r)<50).length;
+  });
+  const othersFailRate=otherTotal?Math.round(otherLowTotal/otherTotal*100):null;
+
+  // বারবার (২+ বার) ৫০%-এর নিচে পাওয়া ছাত্র
+  const studentLowCount={};
+  myLow.forEach(r=>{studentLowCount[r.name]=(studentLowCount[r.name]||0)+1;});
+  const repeatFailStudents=Object.values(studentLowCount).filter(c=>c>=2).length;
+
+  // শিক্ষকের দেওয়া কারণ বিশ্লেষণ
+  const reasons=myLow.filter(r=>r.lowScoreReason&&r.lowScoreReason.trim());
+  let studentBlame=0,teachingBlame=0,mixedBlame=0,vagueCount=0;
+  reasons.forEach(r=>{
+    const c=classifyLowScoreReason(r.lowScoreReason);
+    if(c.vague)vagueCount++;
+    else if(c.category==="student")studentBlame++;
+    else if(c.category==="teaching")teachingBlame++;
+    else if(c.category==="mixed")mixedBlame++;
+  });
+  const reasonCounts={};
+  reasons.forEach(r=>{const norm=r.lowScoreReason.trim().toLowerCase();reasonCounts[norm]=(reasonCounts[norm]||0)+1;});
+  const templateSuspect=Object.values(reasonCounts).some(c=>c>=3);
+
+  // পরামর্শ (অগ্রাধিকার-ক্রমে) — সবচেয়ে গুরুত্বপূর্ণ সংকেতটাই দেখানো হয়
+  let advisory=null;
+  if(studentBlame>0&&teachingBlame===0&&othersFailRate!=null&&myFailRate>othersFailRate+10){
+    advisory={level:"warn",text:`আপনার দেওয়া অধিকাংশ কারণ (${studentBlame}/${reasons.length}) শিক্ষার্থীকে দায়ী করে, কিন্তু পরিসংখ্যান বলছে আপনার ক্লাসের ফলাফল একই বিষয়ে অন্যদের তুলনায় বেশি খারাপ (${myFailRate}% বনাম ${othersFailRate}%) — শুধু শিক্ষার্থীর দোষ না ধরে নিজের পাঠদান পদ্ধতিও একবার পর্যালোচনা করার পরামর্শ দেওয়া হচ্ছে।`};
+  }else if(myLow.length>=3&&othersFailRate!=null&&myFailRate>othersFailRate+15){
+    advisory={level:"warn",text:`এই সময়ে আপনার ক্লাসে ৫০%-এর নিচে নম্বর পাওয়ার হার ${myFailRate}%, যেখানে একই বিষয়ে অন্য শিক্ষকদের গড় হার ${othersFailRate}%। এই পার্থক্য উল্লেখযোগ্য — পাঠদান পদ্ধতি একবার পর্যালোচনা করার পরামর্শ দেওয়া হচ্ছে।`};
+  }else if(repeatFailStudents>=2){
+    advisory={level:"info",text:`${repeatFailStudents} জন শিক্ষার্থী বারবার (২ বা ততোধিকবার) ৫০%-এর নিচে পাচ্ছে। এদের জন্য পৃথক মনোযোগ বা রেমেডিয়াল সহায়তা বিবেচনা করা যেতে পারে।`};
+  }else if(templateSuspect){
+    advisory={level:"info",text:`লক্ষ্য করা যাচ্ছে একই ধরনের কারণ বারবার লেখা হয়েছে — প্রতিটি ছাত্রের জন্য যদি সত্যিই ভিন্ন পরিস্থিতি থাকে, তাহলে আরও নির্দিষ্ট করে লেখার অনুরোধ থাকবে।`};
+  }else if(myLow.length>0){
+    advisory={level:"ok",text:"কম নম্বরের হার স্বাভাবিক পরিসরে আছে — বর্তমানে বিশেষ কোনো পর্যবেক্ষণ প্রয়োজন নেই।"};
+  }
+
+  return{
+    myFailRate,othersFailRate,myLowCount:myLow.length,myTotal:mine.length,
+    repeatFailStudents,
+    reasonStats:{studentBlame,teachingBlame,mixedBlame,vagueCount,total:reasons.length,missingReasonCount:myLow.length-reasons.length},
+    templateSuspect,advisory,
+  };
+}
 const badge=(color,text)=>(<span style={{display:"inline-block",padding:"2px 9px",borderRadius:20,fontSize:11,background:color+"22",color,fontWeight:700,border:`1px solid ${color}44`}}>{text}</span>);
 function Stat({label,value,color,sub}){return(<div style={{background:color+"18",border:`1px solid ${color}30`,borderRadius:10,padding:"12px 10px",textAlign:"center"}}><div style={{fontSize:24,fontWeight:700,color}}>{value}</div><div style={{fontSize:11,color:C.mu,marginTop:2}}>{label}</div>{sub&&<div style={{fontSize:10,color,marginTop:2}}>{sub}</div>}</div>);}
 function Card({children,style={},onClick,onMouseEnter,onMouseLeave}){return <div style={{background:C.cd,border:`1px solid ${C.bd}`,borderRadius:12,padding:14,marginBottom:12,...style}} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>{children}</div>;}
@@ -765,7 +842,8 @@ function BulkAttendance({obsData,setObsData}){
 }
 
 /* ══ শিক্ষক পর্যবেক্ষণ মডিউল ══ */
-function TeacherObservation({obsData,setObsData}){
+function TeacherObservation({obsData,setObsData,STUDENTS}){
+  STUDENTS=STUDENTS||DEFAULT_STUDENTS; // ── FIX: আগে এই prop টাই পাস হতো না, ফলে ফিডব্যাক ট্যাব খুললেই ক্র্যাশ করত ──
   const [tab,setTab]=useState("attendance");
   const [selTeacher,setSelTeacher]=useState(TEACHERS[0]);
 
@@ -942,7 +1020,7 @@ function TeacherObservation({obsData,setObsData}){
         <div style={{background:C.amL,borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:12,color:C.am}}>
           💡 বয়স অনুযায়ী সহজ রেটিং: ১ = খুব খারাপ, ২ = খারাপ, ৩ = মাঝামাঝি, ৪ = ভালো, ৫ = চমৎকার
         </div>
-        <FeedbackForm onAdd={addFeedback}/>
+        <FeedbackForm onAdd={addFeedback} STUDENTS={STUDENTS}/>
         {fbList.length>0&&(<div style={{marginTop:12}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"8px 10px",background:C.bg,borderRadius:8}}>
             <div style={{fontSize:28,fontWeight:700,color:avgFb>=4?C.gr:avgFb>=3?C.am:C.re}}>{avgFb}</div>
@@ -1032,7 +1110,7 @@ function TrainingForm({onAdd}){
   </div>);
 }
 
-function FeedbackForm({onAdd}){
+function FeedbackForm({onAdd,STUDENTS}){
   const [rating,setRating]=useState(4);
   const [comment,setComment]=useState("");
   const [cls,setCls]=useState("VI");
@@ -3098,7 +3176,9 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       <Stat label="পাস রেট" value={validRes.length?Math.round(pass/validRes.length*100)+"%":"—"} color={C.gr} sub={`${pass}/${validRes.length}`}/>
     </div>
     {/* দৈনন্দিন কার্যক্রম — শুধুমাত্র MD ABU SAYED, একদম উপরে */}
-    {ADMIN_TEACHERS.includes(currentUser)&&(()=>{
+    {/* FIX: আগে ADMIN_TEACHERS.includes(currentUser) ব্যবহার হতো, যা তিনজন অ্যাডমিনকেই (সাব্বির/রুবেলসহ)
+        দেখাত — মন্তব্যে লেখা উদ্দেশ্যের সাথে কোডটাই মিলছিল না। এখন শুধু ADMIN_TEACHER (Sayed) নিজে দেখবেন। */}
+    {currentUser===ADMIN_TEACHER&&(()=>{
       const appPendingLP=(lessonPlans._v2||[]).filter(p=>p.status==="pending").length;
       const todayStr2=new Date().toISOString().slice(0,10);
       const appPendingDL=deadlines.filter(d=>{
@@ -3110,7 +3190,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
         <DailyRoutineScheduler dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate} appPendingLP={appPendingLP} appPendingDL={appPendingDL}/>
       );
     })()}
-    {ADMIN_TEACHERS.includes(currentUser)&&<SpecialTasksPanel specialTasks={specialTasks} setSpecialTasks={setSpecialTasks}/>}
+    {currentUser===ADMIN_TEACHER&&<SpecialTasksPanel specialTasks={specialTasks} setSpecialTasks={setSpecialTasks}/>}
     {/* এই সপ্তাহের পরীক্ষার কার্ড */}
     {thisWeekExams.length>0&&(
       <div onClick={()=>setShowExamSchedule(true)} className="stat-card" style={{background:"linear-gradient(135deg,#fff8e1,#fef3c7)",border:"1px solid #e67e2240",borderRadius:12,padding:"12px 14px",marginBottom:12,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3611,7 +3691,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
 
         {/* ট্যাব নেভ */}
         <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.bd}`,background:"#fafafa",overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-          {[{id:"subject",label:"📚 বিষয়"},{id:"list",label:"📋 তালিকা"},{id:"trend",label:"📈 ট্রেন্ড"},{id:"progress",label:"🎯 প্রগতি"},{id:"behavior",label:"⭐ আচরণ"},{id:"target",label:"🏹 লক্ষ্যমাত্রা"},{id:"contact",label:"📞 যোগাযোগ"}].map(t=>(
+          {[{id:"subject",label:"📚 বিষয়"},{id:"list",label:"📋 তালিকা"},{id:"trend",label:"📈 ট্রেন্ড"},{id:"progress",label:"🎯 প্রগতি"},{id:"behavior",label:"⭐ আচরণ"},{id:"target",label:"🏹 লক্ষ্যমাত্রা"},{id:"contact",label:"📞 যোগাযোগ"},{id:"lowscore",label:"⚠️ কম নম্বরের কারণ"}].map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)}
               style={{flexShrink:0,padding:"9px 8px",border:"none",borderBottom:tab===t.id?`3px solid ${C.pu}`:"3px solid transparent",background:"transparent",color:tab===t.id?C.pu:C.mu,cursor:"pointer",fontWeight:tab===t.id?700:400,fontSize:10,transition:"all 0.2s",whiteSpace:"nowrap"}}>
               {t.label}
@@ -3833,6 +3913,27 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
           {/* ══ ট্যাব: অভিভাবক যোগাযোগ ══ */}
           {tab==="contact"&&(<div>
             <ContactLogSection profile={profile} updateProfile={updateProfile} currentUser={currentUser} name={name}/>
+          </div>)}
+
+          {tab==="lowscore"&&(<div>
+            {(!profile.lowScoreReasons||profile.lowScoreReasons.length===0)?(
+              <div style={{textAlign:"center",color:C.mu,padding:20,fontSize:13}}>এখনো ৫০%-এর নিচে কোনো নম্বর রেকর্ড হয়নি — ভালো লক্ষণ।</div>
+            ):(
+              <div>
+                <div style={{fontSize:11,color:C.mu,marginBottom:10}}>যখনই এই শিক্ষার্থী কোনো পরীক্ষায় ৫০%-এর নিচে নম্বর পেয়েছে, শিক্ষকের দেওয়া কারণ এখানে স্বয়ংক্রিয়ভাবে লগ হয়েছে।</div>
+                {[...profile.lowScoreReasons].reverse().map(r=>(
+                  <div key={r.id} style={{padding:"9px 11px",background:"#fff5f5",borderRadius:8,border:`1px solid ${C.re}25`,marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontWeight:700,fontSize:12,color:C.re}}>{r.subject} — {r.pct}%</span>
+                      <span style={{fontSize:10,color:C.mu}}>{r.date}</span>
+                    </div>
+                    <div style={{fontSize:11,color:C.mu,marginTop:1}}>{r.examType}{r.examName?` (${r.examName})`:""} • {r.marks}/{r.fullMarks}</div>
+                    <div style={{fontSize:12,color:C.tx,marginTop:5}}>{r.reason}</div>
+                    <div style={{fontSize:10,color:C.mu,marginTop:4}}>— {r.teacher}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>)}
 
         </div>
@@ -5103,7 +5204,7 @@ function Teachers({results,lessonPlans,obsData={},setObsData=()=>{},currentUser=
 
 
 /* ══ EXAM ENTRY ══ */
-function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,teacherSubjects={},STUDENTS}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,teacherSubjects={},STUDENTS,studentProfiles={},setStudentProfiles=()=>{}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const canSelectTeacher=isAdmin||isRep; // Admin বা Rep উভয়েই যেকোনো শিক্ষক select করতে পারবেন
   const [cls,setCls]=useState("VI");
   const [sub,setSub]=useState((SUBJECTS_BY_CLASS["VI"]||SUBJECTS)[0]);
@@ -5112,6 +5213,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
   const [examDate,setExamDate]=useState("");
   const [marks,setMarks]=useState({});
   const [absent,setAbsent]=useState({});// {name: true/false}
+  const [lowScoreReasons,setLowScoreReasons]=useState({}); // {name: reasonText} — ৫০%-এর নিচে হলে বাধ্যতামূলক
   const [teacher,setTeacher]=useState(canSelectTeacher?TEACHERS[0]:(currentUser||TEACHERS[0]));
   const [fullMarks,setFullMarks]=useState(100);
   const [passMarks,setPassMarks]=useState(33);
@@ -5139,12 +5241,12 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     setCls(c);
     const subs=SUBJECTS_BY_CLASS[c]||SUBJECTS;
     setSub(subs[0]);
-    setMarks({});setAbsent({});
+    setMarks({});setAbsent({});setLowScoreReasons({});
   };
 
   const handleTeacherChange=(t)=>{
     setTeacher(t);
-    setMarks({});setAbsent({});
+    setMarks({});setAbsent({});setLowScoreReasons({});
   };
 
   const handleFullMarks=(val)=>{
@@ -5174,19 +5276,35 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
   const liveAbsent=Object.values(absent).filter(Boolean).length;
   const liveAvgPct=liveAvg?Math.round(liveAvg/fullMarks*100):null;
 
+  // ── ৫০%-এর নিচে নম্বর পাওয়া ছাত্রদের জন্য কারণ বাধ্যতামূলক ──
+  const pendingLowScoreReasons=STUDENTS[cls].filter(name=>{
+    if(absent[name]||!marks[name])return false;
+    const m=parseInt(marks[name]);
+    if(isNaN(m))return false;
+    const pct=m/fullMarks*100;
+    return pct<50&&!(lowScoreReasons[name]||"").trim();
+  });
+
   const save=async()=>{
+    if(pendingLowScoreReasons.length>0)return; // নিরাপত্তা-চেক — বাটন এমনিতেই disabled থাকে
     const nowISO=new Date().toISOString();
     const trimName=examName.trim();
     const entries=STUDENTS[cls]
       .filter(name=>!absent[name])
-      .map(name=>({
-        name,cls,subject:sub,examType:ex,
-        examName:trimName,examDate:examDate.trim(),
-        marks:marks[name]!==""&&marks[name]!==undefined?parseInt(marks[name])||0:0,
-        fullMarks,passMarks,
-        examOrder:EXAM_ORDER[ex]||1,
-        teacher,absent:false,savedAt:nowISO
-      }));
+      .map(name=>{
+        const m=marks[name]!==""&&marks[name]!==undefined?parseInt(marks[name])||0:0;
+        const isLow=m/fullMarks*100<50;
+        return{
+          name,cls,subject:sub,examType:ex,
+          examName:trimName,examDate:examDate.trim(),
+          marks:m,
+          fullMarks,passMarks,
+          examOrder:EXAM_ORDER[ex]||1,
+          teacher,absent:false,savedAt:nowISO,
+          // ── কম নম্বরের কারণ (৫০%-এর নিচে হলে বাধ্যতামূলকভাবে নেওয়া হয়েছে) ──
+          ...(isLow?{lowScoreReason:(lowScoreReasons[name]||"").trim()}:{}),
+        };
+      });
     // absent রেকর্ড আলাদাভাবে (KPI হিসাবে বাদ যাবে)
     const absentEntries=STUDENTS[cls]
       .filter(name=>absent[name])
@@ -5209,7 +5327,24 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     // ২. Firebase-এ granular write — একসাথে একাধিক শিক্ষক save করলেও কেউ কারো ডেটা মুছবে না
     setMsg("⏳ সংরক্ষণ হচ্ছে...");
     const ok=await fbSaveResultEntries(allEntries);
-    setMarks({});setAbsent({});setExamDate("");setExamName("");
+
+    // ৩. কম নম্বরের কারণ শিক্ষার্থীর প্রোফাইলে লগ করা (যাতে ইতিহাস ধরে রাখা যায়)
+    const lowEntries=entries.filter(e=>e.lowScoreReason);
+    lowEntries.forEach(e=>{
+      setStudentProfiles(prev=>{
+        const existingLogs=(prev[e.name]||{}).lowScoreReasons||[];
+        const updated={...(prev[e.name]||{}),lowScoreReasons:[...existingLogs,{
+          id:Date.now().toString()+Math.random().toString(36).slice(2,6),
+          subject:e.subject,cls:e.cls,examType:e.examType,examName:e.examName,
+          marks:e.marks,fullMarks:e.fullMarks,pct:Math.round(e.marks/e.fullMarks*100),
+          reason:e.lowScoreReason,teacher:e.teacher,date:e.examDate||new Date().toLocaleDateString("bn-BD"),
+        }]};
+        fbSaveStudentProfile(e.name,updated); // granular Firebase write
+        return{...prev,[e.name]:updated};
+      });
+    });
+
+    setMarks({});setAbsent({});setExamDate("");setExamName("");setLowScoreReasons({});
     if(ok){
       setMsg(`✓ সংরক্ষিত! উপস্থিত: ${entries.length} | অনুপস্থিত: ${absentEntries.length}`);
     }else{
@@ -5307,7 +5442,10 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
             const pct=(!isAbs&&marks[name])?Math.round(m/fullMarks*100):null;
             const [g,gc]=(!isAbs&&marks[name])?getDynGrade(m,fullMarks):["—",C.mu];
             const isPassing=!isAbs&&marks[name]&&m>=passMarks;
-            return(<tr key={i} style={{background:isAbs?"#f3f0ff":marks[name]?(isPassing?"#f0fff4":"#fff5f5"):"transparent",opacity:isAbs?0.65:1}}>
+            const isLow=pct!==null&&pct<50;
+            const reasonMissing=isLow&&!(lowScoreReasons[name]||"").trim();
+            return(<React.Fragment key={i}>
+            <tr style={{background:isAbs?"#f3f0ff":marks[name]?(isPassing?"#f0fff4":"#fff5f5"):"transparent",opacity:isAbs?0.65:1}}>
               <td style={{color:C.mu,fontSize:11}}>{i+1}</td>
               <td style={{fontWeight:500,fontSize:12,textDecoration:isAbs?"line-through":"none",color:isAbs?"#7c3aed":C.tx}}>{name}</td>
               <td>
@@ -5327,13 +5465,33 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
               </td>
               <td style={{fontSize:12}}>{pct!==null?`${pct}%`:"—"}</td>
               <td>{badge(gc,g)}</td>
-            </tr>);
+            </tr>
+            {/* ── ৫০%-এর নিচে হলে কারণ বাধ্যতামূলক — পরবর্তী এন্ট্রি ব্লক থাকবে যতক্ষণ না পূরণ হয় ── */}
+            {isLow&&(
+              <tr style={{background:"#fff5f5"}}>
+                <td colSpan="6" style={{padding:"6px 10px 10px"}}>
+                  <div style={{fontSize:11,color:C.re,fontWeight:700,marginBottom:3}}>
+                    ⚠️ {name} — {pct}% (৫০%-এর নিচে)। ফলাফল খারাপ হওয়ার কারণ লিখুন (বাধ্যতামূলক):
+                  </div>
+                  <input type="text" placeholder="যেমন: পরীক্ষার আগে অসুস্থ ছিল / পাঠ বুঝতে সমস্যা হয়েছিল..."
+                    value={lowScoreReasons[name]||""}
+                    onChange={e=>setLowScoreReasons(p=>({...p,[name]:e.target.value}))}
+                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${reasonMissing?C.re:C.gr}`,fontSize:12,boxSizing:"border-box"}}/>
+                </td>
+              </tr>
+            )}
+            </React.Fragment>);
           })}
         </tbody>
       </table></div>
 
+      {pendingLowScoreReasons.length>0&&(
+        <div style={{background:"#fff5f5",border:`1px solid ${C.re}40`,borderRadius:8,padding:"8px 12px",marginTop:10,fontSize:12,color:C.re,fontWeight:700}}>
+          🔒 সংরক্ষণ করার আগে নিচের {pendingLowScoreReasons.length} জনের কম নম্বরের কারণ লিখুন: {pendingLowScoreReasons.join(", ")}
+        </div>
+      )}
       <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <button onClick={save} style={{padding:"9px 20px",borderRadius:8,border:"none",background:C.pu,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>✅ সংরক্ষণ করুন</button>
+        <button onClick={save} disabled={pendingLowScoreReasons.length>0} style={{padding:"9px 20px",borderRadius:8,border:"none",background:pendingLowScoreReasons.length>0?"#ccc":C.pu,color:"#fff",cursor:pendingLowScoreReasons.length>0?"not-allowed":"pointer",fontWeight:700,fontSize:14}}>{pendingLowScoreReasons.length>0?"🔒 কারণ পূরণ করুন":"✅ সংরক্ষণ করুন"}</button>
         {msg&&<span style={{color:C.gr,fontWeight:700,fontSize:13}}>{msg}</span>}
       </div>
     </Card>
@@ -7551,6 +7709,13 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   // পুরনো (non-weekly) plan
   const oldPlans=useMemo(()=>(lessonPlans._v2||[]).filter(p=>p.type!=="weekly"),[lessonPlans]);
 
+  // ── FIX: গুরুতর বাগ — effectiveTeacher তার ঘোষণার আগেই ব্যবহৃত হচ্ছিল (TDZ error) ──
+  // আগে myAssignments-এর useMemo dependency array-তে effectiveTeacher রেফারেন্স করা হতো,
+  // অথচ সেটা ঘোষিত হতো তার নিচে — এতে "Cannot access 'effectiveTeacher' before initialization"
+  // এরর হয়ে পুরো লেসন প্ল্যান পেজ রেন্ডার হওয়ার আগেই ক্র্যাশ করত (প্রতিটি ব্যবহারকারীর জন্য)।
+  // এখন এটা আগে ঘোষণা করে তারপর ব্যবহার করা হচ্ছে।
+  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
+
   // শিক্ষকের নির্ধারিত বিষয়+শ্রেণি
   const myAssignments=useMemo(()=>{
     if(isAdmin)return[];
@@ -7558,7 +7723,6 @@ function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubject
   },[isAdmin,effectiveTeacher,teacherSubjects]);
 
   // এই সপ্তাহে শিক্ষক ইতিমধ্যে কোন বিষয়ে জমা দিয়েছেন?
-  const effectiveTeacher=isRep?repTargetTeacher:currentTeacher; // Rep হলে target teacher
   const submittedThisWeek=useMemo(()=>{
     if(!effectiveTeacher)return{};
     const map={};
@@ -7917,6 +8081,12 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
   const detailRes=selTeacher?allRes.filter(r=>r.teacher===selTeacher):[];
 
   // নির্বাচিত শিক্ষকের ছাত্রভিত্তিক উন্নতি
+  // নির্বাচিত শিক্ষকের কম-নম্বর প্যাটার্ন বিশ্লেষণ ও স্বয়ংক্রিয় পরামর্শ
+  const lowScoreAdvisory=useMemo(()=>{
+    if(!selTeacher)return null;
+    return computeTeacherLowScoreAdvisory(selTeacher,allRes);
+  },[selTeacher,allRes]);
+
   const studentImprovements=useMemo(()=>{
     if(!selTeacher)return[];
     const map={};
@@ -8071,6 +8241,40 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
             </div>
           ))}
         </Card>
+
+        {/* কম নম্বর প্যাটার্ন — স্বয়ংক্রিয় পরামর্শ */}
+        {lowScoreAdvisory&&lowScoreAdvisory.advisory&&(
+          <Card style={{
+            background:lowScoreAdvisory.advisory.level==="warn"?C.reL:lowScoreAdvisory.advisory.level==="info"?C.amL:C.grL,
+            border:`1px solid ${lowScoreAdvisory.advisory.level==="warn"?C.re:lowScoreAdvisory.advisory.level==="info"?C.am:C.gr}30`
+          }}>
+            <H3 style={{color:lowScoreAdvisory.advisory.level==="warn"?C.re:lowScoreAdvisory.advisory.level==="info"?C.am:C.gr}}>
+              {lowScoreAdvisory.advisory.level==="warn"?"⚠️":lowScoreAdvisory.advisory.level==="info"?"💡":"✓"} কম নম্বরের প্যাটার্ন বিশ্লেষণ
+            </H3>
+            <div style={{fontSize:12.5,lineHeight:1.7,color:C.tx,marginBottom:8}}>{lowScoreAdvisory.advisory.text}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
+              <div style={{background:"#fff",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                <div style={{fontWeight:700,fontSize:15}}>{lowScoreAdvisory.myFailRate}%</div>
+                <div style={{color:C.mu}}>এই শিক্ষকের হার</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                <div style={{fontWeight:700,fontSize:15}}>{lowScoreAdvisory.othersFailRate==null?"—":lowScoreAdvisory.othersFailRate+"%"}</div>
+                <div style={{color:C.mu}}>অন্যদের গড় হার</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                <div style={{fontWeight:700,fontSize:15}}>{lowScoreAdvisory.repeatFailStudents}</div>
+                <div style={{color:C.mu}}>বারবার ফেল করা ছাত্র</div>
+              </div>
+            </div>
+            {lowScoreAdvisory.reasonStats.total>0&&(
+              <div style={{fontSize:10.5,color:C.mu,marginTop:8}}>
+                কারণ বিশ্লেষণ: শিক্ষার্থী-কেন্দ্রিক {lowScoreAdvisory.reasonStats.studentBlame}, শিক্ষণ-কেন্দ্রিক {lowScoreAdvisory.reasonStats.teachingBlame}, মিশ্র {lowScoreAdvisory.reasonStats.mixedBlame}
+                {lowScoreAdvisory.reasonStats.vagueCount>0&&`, অস্পষ্ট ${lowScoreAdvisory.reasonStats.vagueCount}`}
+                {lowScoreAdvisory.reasonStats.missingReasonCount>0&&` • কারণ লেখা হয়নি এমন পুরনো এন্ট্রি: ${lowScoreAdvisory.reasonStats.missingReasonCount}`}
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* বিষয়ভিত্তিক পারফরম্যান্স */}
         {subjectPerf.length>0&&(<Card>
@@ -8900,6 +9104,465 @@ function calcDeadlinePenalty(teacher, deadlines, dlSubmissions){
   return{missed,total,rate:total?Math.round((total-missed)/total*100):100};
 }
 
+// ══════════════════════════════════════════════
+// ★★★ মাসিক পূর্ণাঙ্গ রিপোর্ট — ডেটা গণনা ★★★
+// একটা নির্দিষ্ট মাসের (year, month — 0-indexed) জন্য, এবং সেই মাসের কতদিন পর্যন্ত (uptoDate)
+// তার ভিত্তিতে সব ধরনের অ্যাগ্রিগেট (KPI, উপস্থিতি, ফলাফল-বিশ্লেষণ, লেসন প্ল্যান, ডেডলাইন,
+// পর্যবেক্ষণ) একসাথে গণনা করে। এই একই ফাংশন গত কয়েক মাসের সংক্ষিপ্ত ট্রেন্ড বের করতেও
+// ব্যবহৃত হয় (শুধু পূর্ণ মাস, uptoDate=মাসের শেষ দিন দিয়ে কল করে)।
+// ══════════════════════════════════════════════
+function stdDevPct(arr){
+  if(arr.length<2)return 0;
+  const avg=arr.reduce((a,b)=>a+b,0)/arr.length;
+  const variance=arr.reduce((a,b)=>a+Math.pow(b-avg,2),0)/arr.length;
+  return Math.round(Math.sqrt(variance));
+}
+function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSubmissions, examSchedule, teacherSubjects, STUDENTS, year, month, uptoDate){
+  const inRange=(dateStr)=>{
+    if(!dateStr)return false;
+    const d=new Date(dateStr);
+    if(isNaN(d.getTime()))return false;
+    if(d.getFullYear()!==year||d.getMonth()!==month)return false;
+    if(uptoDate&&d>uptoDate)return false;
+    return true;
+  };
+
+  const monthRes=allRes.filter(r=>inRange(r.savedAt||r.examDate));
+  const validRes=monthRes.filter(r=>!r.absent&&r.marks!=null);
+  const pct=r=>Math.round((r.marks/(r.fullMarks||100))*1000)/10;
+
+  // ── সামগ্রিক ফলাফল ──
+  const overallAvg=validRes.length?Math.round(validRes.reduce((a,r)=>a+pct(r),0)/validRes.length*10)/10:0;
+  const overallPass=validRes.length?Math.round(validRes.filter(r=>r.marks>=(r.passMarks||33)).length/validRes.length*100):0;
+  let aPlusCount=0,fCount=0;
+  validRes.forEach(r=>{const[g]=getGrade(r.marks,r.fullMarks||100,r.passMarks||33);if(g==="A+")aPlusCount++;if(g==="F")fCount++;});
+
+  // ── শ্রেণিভিত্তিক বিশ্লেষণ ──
+  const classBreakdown=Object.keys(STUDENTS||{}).map(cls=>{
+    const rows=validRes.filter(r=>r.cls===cls);
+    if(!rows.length)return{cls,count:0,avg:null,pass:null,gradeCounts:{}};
+    const avg=Math.round(rows.reduce((a,r)=>a+pct(r),0)/rows.length*10)/10;
+    const pass=Math.round(rows.filter(r=>r.marks>=(r.passMarks||33)).length/rows.length*100);
+    const gradeCounts={};
+    rows.forEach(r=>{const[g]=getGrade(r.marks,r.fullMarks||100,r.passMarks||33);gradeCounts[g]=(gradeCounts[g]||0)+1;});
+    return{cls,count:rows.length,avg,pass,gradeCounts};
+  });
+
+  // ── বিষয়ভিত্তিক দুর্বলতা বিশ্লেষণ ──
+  const subjMap={};
+  validRes.forEach(r=>{const key=r.subject||"অজানা";(subjMap[key]=subjMap[key]||[]).push({pct:pct(r),pass:r.marks>=(r.passMarks||33)});});
+  const subjectBreakdown=Object.entries(subjMap).map(([subject,rows])=>{
+    const avg=Math.round(rows.reduce((a,r)=>a+r.pct,0)/rows.length*10)/10;
+    const pass=Math.round(rows.filter(r=>r.pass).length/rows.length*100);
+    return{subject,avg,pass,count:rows.length,dev:stdDevPct(rows.map(r=>r.pct))};
+  }).sort((a,b)=>a.avg-b.avg);
+
+  // ── শ্রেণি–বিষয় ক্রস ম্যাট্রিক্স ──
+  const subjectsUsed=Object.keys(subjMap);
+  const crossMatrix=Object.keys(STUDENTS||{}).map(cls=>{
+    const row={cls};
+    subjectsUsed.forEach(subject=>{
+      const rows=validRes.filter(r=>r.cls===cls&&r.subject===subject);
+      row[subject]=rows.length?Math.round(rows.reduce((a,r)=>a+pct(r),0)/rows.length):null;
+    });
+    return row;
+  });
+
+  // ── ঝুঁকিপূর্ণ শিক্ষার্থী (F গ্রেড আছে এমন) ──
+  const studentMap={};
+  validRes.forEach(r=>{
+    const key=`${r.name}__${r.cls}`;
+    (studentMap[key]=studentMap[key]||{name:r.name,cls:r.cls,subjects:[]}).subjects.push({subject:r.subject,pct:pct(r)});
+  });
+  const atRiskStudents=Object.values(studentMap)
+    .map(s=>({...s,weak:s.subjects.filter(x=>x.pct<33),avg:Math.round(s.subjects.reduce((a,x)=>a+x.pct,0)/s.subjects.length)}))
+    .filter(s=>s.weak.length>0)
+    .sort((a,b)=>a.avg-b.avg);
+
+  // ── KPI র‍্যাংকিং (এই মাসের ডেটা দিয়ে) ──
+  const monthLPs={
+    _v2:(lessonPlans._v2||[]).filter(p=>inRange(p.submittedAt)||inRange(p.reviewedAt)),
+    ...Object.fromEntries(Object.entries(lessonPlans||{}).filter(([k])=>k!=="_v2")),
+  };
+  const monthObsData={...obsData,peerObservations:(obsData.peerObservations||[]).filter(o=>inRange(o.dateISO))};
+  const kpiRanking=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t))
+    .map(t=>({teacher:t,...calcKPI(t,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}))
+    .sort((a,b)=>b.score-a.score);
+
+  // ── উপস্থিতি (প্রতি শিক্ষক) ──
+  const attendanceReport=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)).map(t=>{
+    const att=((obsData[t]||{}).attendance||[]).filter(a=>inRange(a.isoDate));
+    const leave=att.filter(a=>a.status==="leave").length;
+    const workDays=att.length-leave;
+    const present=att.filter(a=>a.status==="present").length;
+    const late=att.filter(a=>a.status==="late").length;
+    const rate=workDays?Math.round(((present+late*0.5)/workDays)*100):null;
+    return{teacher:t,workDays,present,late,leave,rate};
+  }).filter(r=>r.workDays>0);
+
+  // ── লেসন প্ল্যান ও ডেডলাইন সম্মতি (প্রতি শিক্ষক) ──
+  const lpDeadlineReport=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)).map(t=>{
+    const mine=(lessonPlans._v2||[]).filter(p=>p.teacher===t&&inRange(p.submittedAt));
+    const approved=mine.filter(p=>p.status===LP_STATUS.APPROVED).length;
+    const returned=mine.filter(p=>p.status===LP_STATUS.REVISION).length;
+    const rangeDeadlines=(deadlines||[]).filter(dl=>{
+      const targetTeachers=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;
+      if(!targetTeachers.includes(t))return false;
+      const due=new Date(dl.dueDate);
+      return due.getFullYear()===year&&due.getMonth()===month&&(!uptoDate||due<=uptoDate);
+    });
+    const missed=rangeDeadlines.filter(dl=>((dlSubmissions[dl.id]||{})[t])!=="done").length;
+    return{teacher:t,submitted:mine.length,approved,returned,dlTotal:rangeDeadlines.length,dlMissed:missed};
+  });
+
+  // ── পিয়ার পর্যবেক্ষণ সারাংশ ──
+  const peerObsInRange=(obsData.peerObservations||[]).filter(o=>inRange(o.dateISO));
+  const observersSet=new Set(peerObsInRange.map(o=>o.observerTeacher));
+  const nonObservers=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)&&!observersSet.has(t));
+  const peerObsAvg=peerObsInRange.length?Math.round(peerObsInRange.reduce((a,o)=>a+o.totalScore,0)/peerObsInRange.length):null;
+
+  return{
+    period:{year,month},
+    validCount:validRes.length,
+    overallAvg,overallPass,aPlusCount,fCount,
+    classBreakdown,subjectBreakdown,crossMatrix,subjectsUsed,
+    atRiskStudents,
+    kpiRanking,attendanceReport,lpDeadlineReport,
+    peerObsCount:peerObsInRange.length,peerObsAvg,nonObservers,
+  };
+}
+
+/* ══════════════════════════════════════════════
+   ★★★ MONTHLY REPORT — মাসিক পূর্ণাঙ্গ প্রতিষ্ঠানিক প্রতিবেদন (PDF) ★★★
+   অ্যাডমিন-দের জন্য (Sabbir/Rubel/Sayed)। যেকোনো দিন ডাউনলোড করলে সেই মাসের ১ তারিখ থেকে
+   সেদিন পর্যন্ত ডেটা দেখাবে; আগের মাস বেছে নিলে পুরো মাসের ডেটা দেখাবে। "PDF ডাউনলোড করুন"
+   বাটন ব্রাউজারের প্রিন্ট ডায়ালগ খোলে (Save as PDF) — বাংলা টেক্সট নিখুঁত থাকে, কোনো বাড়তি
+   লাইব্রেরির প্রয়োজন হয় না।
+══════════════════════════════════════════════ */
+const MONTH_NAMES_BN=["জানুয়ারি","ফেব্রুয়ারি","মার্চ","এপ্রিল","মে","জুন","জুলাই","আগস্ট","সেপ্টেম্বর","অক্টোবর","নভেম্বর","ডিসেম্বর"];
+const HEAT_COLOR=(v)=>{
+  if(v==null)return{bg:"#ddd",fg:"#888"};
+  if(v>=70)return{bg:"#1e6b3a",fg:"#fff"};
+  if(v>=60)return{bg:"#4d8f3a",fg:"#fff"};
+  if(v>=50)return{bg:"#a3a53a",fg:"#fff"};
+  if(v>=40)return{bg:"#c98a2e",fg:"#fff"};
+  if(v>=33)return{bg:"#a35a00",fg:"#fff"};
+  return{bg:"#a32d2d",fg:"#fff"};
+};
+
+function MonthlyReport({results,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,currentUser,onClose}){
+  STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+  const allRes=useMemo(()=>Object.values(results||{}).flat(),[results]);
+  const now=new Date();
+
+  // ── মাস নির্বাচন: ডিফল্ট চলতি মাস (আজ পর্যন্ত), বা গত ১১ মাসের যেকোনো একটি (পূর্ণ মাস) ──
+  const monthOptions=useMemo(()=>{
+    const opts=[];
+    for(let i=0;i<12;i++){
+      const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+      opts.push({year:d.getFullYear(),month:d.getMonth(),label:`${MONTH_NAMES_BN[d.getMonth()]} ${d.getFullYear()}`});
+    }
+    return opts;
+  },[]);
+  const [selIdx,setSelIdx]=useState(0);
+  const sel=monthOptions[selIdx];
+  const isCurrentMonth=selIdx===0;
+  const uptoDate=isCurrentMonth?now:new Date(sel.year,sel.month+1,0,23,59,59);
+  const periodLabel=isCurrentMonth
+    ?`১ ${MONTH_NAMES_BN[sel.month]} – ${now.toLocaleDateString("bn-BD")}`
+    :`১ – ${new Date(sel.year,sel.month+1,0).getDate()} ${MONTH_NAMES_BN[sel.month]}, ${sel.year}`;
+
+  const data=useMemo(()=>computeMonthlyReportData(
+    allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,sel.year,sel.month,uptoDate
+  ),[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,sel.year,sel.month]);
+
+  // ── ট্রেন্ড: এই মাস + আগের ২ পূর্ণ মাস ──
+  const trendMonths=useMemo(()=>{
+    return[2,1,0].map(back=>{
+      const idx=selIdx+back;
+      const m=monthOptions[idx];
+      if(!m)return null;
+      const isCur=idx===0;
+      const upto=isCur?now:new Date(m.year,m.month+1,0,23,59,59);
+      const d=computeMonthlyReportData(allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,m.year,m.month,upto);
+      return{label:m.label,...d};
+    }).filter(Boolean);
+  },[allRes,selIdx]);
+
+  // ── স্বয়ংক্রিয় "বিশেষ দৃষ্টি প্রয়োজন" ফ্ল্যাগ ──
+  const flags=useMemo(()=>{
+    const out=[];
+    data.subjectBreakdown.filter(s=>s.avg<data.overallAvg-10&&s.count>=3).slice(0,3).forEach(s=>{
+      out.push({area:"ফলাফল",detail:`"${s.subject}" বিষয়ে গড় (${s.avg}%) সামগ্রিক গড়ের চেয়ে উল্লেখযোগ্যভাবে কম।`});
+    });
+    data.attendanceReport.filter(a=>a.rate!=null&&a.rate<80).forEach(a=>{
+      out.push({area:"উপস্থিতি",detail:`${a.teacher}-এর উপস্থিতির হার (${a.rate}%) প্রত্যাশিত মানের চেয়ে কম।`});
+    });
+    data.lpDeadlineReport.filter(l=>l.submitted>0||l.dlTotal>0).filter(l=>{
+      const rate=l.submitted?Math.round(l.approved/l.submitted*100):100;
+      return rate<50||l.dlMissed>=2;
+    }).forEach(l=>{
+      out.push({area:"লেসন প্ল্যান/ডেডলাইন",detail:`${l.teacher}: ${l.submitted} জমা, ${l.dlMissed} টি ডেডলাইন মিস।`});
+    });
+    return out.slice(0,8);
+  },[data]);
+
+  const trendArrow=(cur,prev)=>{
+    if(prev==null||cur==null)return<span style={{color:"#888"}}>—</span>;
+    if(cur>prev)return<span style={{color:"#1e6b3a"}}>▲</span>;
+    if(cur<prev)return<span style={{color:"#a32d2d"}}>▼</span>;
+    return<span style={{color:"#888"}}>—</span>;
+  };
+
+  const genTime=now.toLocaleString("bn-BD",{hour:"2-digit",minute:"2-digit"});
+  const genDate=now.toLocaleDateString("bn-BD");
+
+  return(<div style={{position:"fixed",inset:0,background:"#e9e9e4",zIndex:9000,overflowY:"auto"}}>
+    <style>{`
+      @media print{
+        body *{visibility:hidden;}
+        #mrPrintArea, #mrPrintArea *{visibility:visible;}
+        #mrPrintArea{position:absolute;left:0;top:0;width:100%;}
+        .mr-toolbar,.mr-picker{display:none!important;}
+        @page{size:A4;margin:14mm 12mm;}
+      }
+      #mrPrintArea table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:6px;}
+      #mrPrintArea th{background:#2a2a2a;color:#fff;text-align:left;padding:6px 7px;font-weight:600;font-size:11px;}
+      #mrPrintArea td{padding:5px 7px;border-bottom:1px solid #c9c9c9;}
+      #mrPrintArea tr:nth-child(even) td{background:#f7f6f2;}
+    `}</style>
+
+    <div className="mr-toolbar" style={{maxWidth:820,margin:"0 auto",padding:"16px 16px 0",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <button onClick={onClose} style={{padding:"9px 16px",borderRadius:6,border:"1px solid #999",background:"#fff",cursor:"pointer",fontSize:13}}>← ফিরে যান</button>
+      <div className="mr-picker" style={{display:"flex",gap:8,alignItems:"center"}}>
+        <select value={selIdx} onChange={e=>setSelIdx(Number(e.target.value))} style={{padding:"8px 10px",borderRadius:6,fontSize:13}}>
+          {monthOptions.map((m,i)=><option key={i} value={i}>{m.label}{i===0?" (চলতি — আজ পর্যন্ত)":""}</option>)}
+        </select>
+        <button onClick={()=>window.print()} style={{padding:"11px 20px",borderRadius:6,border:"none",background:"#7a2e2e",color:"#fff",fontWeight:600,fontSize:14,cursor:"pointer",boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>📄 PDF ডাউনলোড করুন</button>
+      </div>
+    </div>
+
+    <div id="mrPrintArea" style={{maxWidth:820,margin:"18px auto 60px",background:"#fdfdfb",padding:"52px 56px 60px",boxShadow:"0 0 0 1px rgba(0,0,0,0.06),0 10px 30px rgba(0,0,0,0.12)",fontFamily:"'Noto Sans Bengali',sans-serif",color:"#1a1a2e"}}>
+
+      {/* লেটারহেড */}
+      <div style={{textAlign:"center",borderBottom:"3px double #2a2a2a",paddingBottom:16,marginBottom:22}}>
+        <div style={{width:56,height:56,borderRadius:"50%",border:"2px solid #7a2e2e",margin:"0 auto 10px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#7a2e2e"}}>HP</div>
+        <div style={{fontWeight:700,fontSize:26,letterSpacing:0.5,color:"#2a2a2a"}}>Heritage Public School</div>
+        <div style={{fontSize:11.5,color:"#5a5a5a",marginTop:3}}>একাডেমিক তত্ত্বাবধান ও শিক্ষক ব্যবস্থাপনা বিভাগ</div>
+        <div style={{fontWeight:600,fontSize:17,marginTop:14,color:"#7a2e2e"}}>মাসিক পূর্ণাঙ্গ শিক্ষা কার্যক্রম ও ফলাফল বিশ্লেষণ প্রতিবেদন</div>
+        <div style={{fontSize:12,color:"#5a5a5a",marginTop:6,display:"flex",justifyContent:"center",gap:18,flexWrap:"wrap"}}>
+          <span><b>প্রতিবেদনকাল:</b> {periodLabel}</span>
+          <span><b>প্রস্তুতের তারিখ:</b> {genDate}</span>
+          <span><b>প্রস্তুতকারী:</b> {currentUser||"একাডেমিক ইনচার্জ"}</span>
+        </div>
+      </div>
+
+      <div style={{fontSize:12.3,lineHeight:1.85,textAlign:"justify",marginBottom:8}}>
+        এই প্রতিবেদনে <b>{periodLabel}</b> সময়কালে Heritage Public School-এর শিক্ষক কার্যক্রম এবং শিক্ষার্থীদের একাডেমিক ফলাফলের পরিসংখ্যানভিত্তিক বিশ্লেষণ উপস্থাপন করা হয়েছে। তথ্যগুলো HAIS (Heritage Academic Intelligence System)-এ নথিভুক্ত ডেটা থেকে স্বয়ংক্রিয়ভাবে সংগৃহীত ও গণনাকৃত।
+      </div>
+
+      {/* ১ নির্বাহী সারসংক্ষেপ */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>১। নির্বাহী সারসংক্ষেপ</h2>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:"#c9c9c9",border:"1px solid #c9c9c9",marginBottom:4}}>
+        <SumCell num={`${data.overallAvg}%`} label="সামগ্রিক গড় নম্বর"/>
+        <SumCell num={`${data.overallPass}%`} label="সামগ্রিক পাসের হার"/>
+        <SumCell num={data.kpiRanking.length?Math.round(data.kpiRanking.reduce((a,k)=>a+k.score,0)/data.kpiRanking.filter(k=>k.score>0).length||0):"—"} label="গড় শিক্ষক KPI স্কোর"/>
+        <SumCell num={data.attendanceReport.length?`${Math.round(data.attendanceReport.reduce((a,r)=>a+(r.rate||0),0)/data.attendanceReport.length)}%`:"—"} label="গড় উপস্থিতির হার"/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:"#c9c9c9",border:"1px solid #c9c9c9"}}>
+        <SumCell num={data.subjectBreakdown.filter(s=>s.avg<data.overallAvg-10).length} label="সর্বাধিক দুর্বল বিষয় চিহ্নিত"/>
+        <SumCell num={data.atRiskStudents.length} label="ঝুঁকিপূর্ণ শিক্ষার্থী (F গ্রেড)"/>
+        <SumCell num={data.aPlusCount} label={`A+ প্রাপ্ত (মোট ${data.validCount} এন্ট্রি)`}/>
+        <SumCell num={flags.length} label="বিশেষ দৃষ্টি প্রয়োজন এমন ক্ষেত্র"/>
+      </div>
+
+      {/* ২ KPI */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>২। শিক্ষক KPI র‍্যাংকিং</h2>
+      <table>
+        <thead><tr><th style={{width:28}}>ক্রম</th><th>শিক্ষকের নাম</th><th style={{textAlign:"center"}}>স্কোর</th><th style={{textAlign:"center"}}>গ্রেড</th></tr></thead>
+        <tbody>
+          {data.kpiRanking.map((k,i)=>(
+            <tr key={k.teacher}>
+              <td style={{textAlign:"center",fontWeight:i===0?700:400,color:i===0?"#8a6d00":"inherit"}}>{i+1}</td>
+              <td>{k.teacher}</td>
+              <td style={{textAlign:"center",fontWeight:i===0?700:400}}>{k.score}</td>
+              <td style={{textAlign:"center"}}>{k.grade}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{pageBreakBefore:"always"}}></div>
+
+      {/* ৩ ফলাফল প্রবণতা */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 4px"}}>৩। সামগ্রিক ফলাফল প্রবণতা বিশ্লেষণ</h2>
+      <div style={{fontSize:11.5,color:"#5a5a5a",margin:"6px 0 10px"}}>সাম্প্রতিক মাসগুলোর ধারাবাহিক তুলনা।</div>
+      <table>
+        <thead><tr><th>মাস</th><th style={{textAlign:"center"}}>গড় নম্বর</th><th style={{textAlign:"center"}}>পাসের হার</th><th style={{textAlign:"center"}}>A+ প্রাপ্ত</th><th style={{textAlign:"center"}}>F প্রাপ্ত</th></tr></thead>
+        <tbody>
+          {trendMonths.map((m,i)=>(
+            <tr key={i}>
+              <td style={i===trendMonths.length-1?{fontWeight:700}:{}}>{m.label}{i===trendMonths.length-1?" (চলতি)":""}</td>
+              <td style={{textAlign:"center"}}>{m.overallAvg}% {i>0&&trendArrow(m.overallAvg,trendMonths[i-1].overallAvg)}</td>
+              <td style={{textAlign:"center"}}>{m.overallPass}% {i>0&&trendArrow(m.overallPass,trendMonths[i-1].overallPass)}</td>
+              <td style={{textAlign:"center"}}>{m.aPlusCount}</td>
+              <td style={{textAlign:"center",color:m.fCount>0?"#a32d2d":"inherit",fontWeight:m.fCount>0?700:400}}>{m.fCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ৪ শ্রেণিভিত্তিক */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>৪। শ্রেণিভিত্তিক ফলাফল বিশ্লেষণ</h2>
+      <table>
+        <thead><tr><th>শ্রেণি</th><th style={{textAlign:"center"}}>এন্ট্রি</th><th style={{textAlign:"center"}}>গড় নম্বর</th><th style={{textAlign:"center"}}>পাসের হার</th><th style={{textAlign:"center"}}>A+/A</th><th style={{textAlign:"center"}}>B/C</th><th style={{textAlign:"center"}}>D/F</th></tr></thead>
+        <tbody>
+          {data.classBreakdown.map(c=>{
+            const gc=c.gradeCounts||{};
+            const good=(gc["A+"]||0)+(gc["A"]||0);
+            const mid=(gc["A-"]||0)+(gc["B"]||0)+(gc["C"]||0);
+            const low=(gc["D"]||0)+(gc["F"]||0);
+            return(<tr key={c.cls}>
+              <td>{c.cls}</td>
+              <td style={{textAlign:"center"}}>{c.count}</td>
+              <td style={{textAlign:"center"}}>{c.avg==null?"—":c.avg+"%"}</td>
+              <td style={{textAlign:"center",color:c.pass!=null&&c.pass<70?"#a35a00":"inherit",fontWeight:c.pass!=null&&c.pass<70?700:400}}>{c.pass==null?"—":c.pass+"%"}</td>
+              <td style={{textAlign:"center"}}>{good}</td>
+              <td style={{textAlign:"center"}}>{mid}</td>
+              <td style={{textAlign:"center",color:low>0?"#a32d2d":"inherit"}}>{low}</td>
+            </tr>);
+          })}
+        </tbody>
+      </table>
+
+      {/* ৫ বিষয়ভিত্তিক দুর্বলতা */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 4px"}}>৫। বিষয়ভিত্তিক দুর্বলতা বিশ্লেষণ (সকল শ্রেণি সম্মিলিত)</h2>
+      <div style={{fontSize:11.5,color:"#5a5a5a",margin:"6px 0 10px"}}>গড় নম্বর অনুযায়ী ক্রমানুসারে (সর্বনিম্ন থেকে) — "বিচলন" বেশি মানে ছাত্রদের মধ্যে ফলাফলের তারতম্য বেশি।</div>
+      <table>
+        <thead><tr><th style={{width:28}}>ক্রম</th><th>বিষয়</th><th style={{textAlign:"center"}}>গড়</th><th style={{textAlign:"center"}}>পাসের হার</th><th style={{textAlign:"center"}}>বিচলন</th><th style={{textAlign:"center"}}>এন্ট্রি</th></tr></thead>
+        <tbody>
+          {data.subjectBreakdown.map((s,i)=>(
+            <tr key={s.subject}>
+              <td style={{textAlign:"center"}}>{i+1}</td>
+              <td style={i<3?{fontWeight:700}:{}}>{s.subject}</td>
+              <td style={{textAlign:"center",color:s.avg<data.overallAvg-10?"#a32d2d":"inherit",fontWeight:s.avg<data.overallAvg-10?700:400}}>{s.avg}%</td>
+              <td style={{textAlign:"center"}}>{s.pass}%</td>
+              <td style={{textAlign:"center"}}>{s.dev>=15?"উচ্চ":s.dev>=8?"মাঝারি":"নিম্ন"}</td>
+              <td style={{textAlign:"center",color:"#999"}}>{s.count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ৬ ক্রস ম্যাট্রিক্স */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 4px"}}>৬। শ্রেণি–বিষয় ক্রস-বিশ্লেষণ ম্যাট্রিক্স</h2>
+      <div style={{fontSize:11.5,color:"#5a5a5a",margin:"6px 0 10px"}}>প্রতিটি কোষ সংশ্লিষ্ট শ্রেণি ও বিষয়ের গড় নম্বর (%) দেখায়; রঙ যত গাঢ় লাল, দুর্বলতা তত বেশি।</div>
+      <div style={{overflowX:"auto"}}>
+        <table>
+          <thead><tr><th>শ্রেণি</th>{data.subjectsUsed.map(s=><th key={s} style={{textAlign:"center"}}>{s}</th>)}</tr></thead>
+          <tbody>
+            {data.crossMatrix.map(row=>(
+              <tr key={row.cls}>
+                <td>{row.cls}</td>
+                {data.subjectsUsed.map(s=>{
+                  const v=row[s];const hc=HEAT_COLOR(v);
+                  return<td key={s} style={{textAlign:"center",fontWeight:600,background:hc.bg,color:hc.fg}}>{v==null?"—":v}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{pageBreakBefore:"always"}}></div>
+
+      {/* ৭ ঝুঁকিপূর্ণ শিক্ষার্থী */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 4px"}}>৭। ঝুঁকিপূর্ণ শিক্ষার্থী চিহ্নিতকরণ</h2>
+      <div style={{fontSize:11.5,color:"#5a5a5a",margin:"6px 0 10px"}}>যেসব শিক্ষার্থী অন্তত একটি বিষয়ে F গ্রেড পেয়েছে (গড় অনুযায়ী ক্রমানুসারে)।</div>
+      <table>
+        <thead><tr><th>নাম</th><th>শ্রেণি</th><th>দুর্বল বিষয়</th><th style={{textAlign:"center"}}>গড়</th></tr></thead>
+        <tbody>
+          {data.atRiskStudents.length===0&&<tr><td colSpan="4" style={{textAlign:"center",color:"#888"}}>কোনো F-গ্রেড পাওয়া যায়নি — ভালো লক্ষণ।</td></tr>}
+          {data.atRiskStudents.map((s,i)=>(
+            <tr key={i}>
+              <td>{s.name}</td>
+              <td style={{textAlign:"center"}}>{s.cls}</td>
+              <td>{s.weak.map(w=>w.subject).join(", ")}</td>
+              <td style={{textAlign:"center",color:"#a32d2d",fontWeight:700}}>{s.avg}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ৮ বিশ্লেষকের পর্যবেক্ষণ */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 4px"}}>৮। বিশ্লেষকের পর্যবেক্ষণ ও সুপারিশ</h2>
+      <div style={{fontSize:12.3,lineHeight:1.85,textAlign:"justify",marginBottom:8}}>
+        {data.subjectBreakdown.length>0?(<>
+          সবচেয়ে দুর্বল বিষয় <b style={{color:"#7a2e2e"}}>{data.subjectBreakdown[0].subject} ({data.subjectBreakdown[0].avg}%)</b>{data.subjectBreakdown[1]?<> এবং <b style={{color:"#7a2e2e"}}>{data.subjectBreakdown[1].subject} ({data.subjectBreakdown[1].avg}%)</b></>:""} — সামগ্রিক গড় ({data.overallAvg}%) থেকে উল্লেখযোগ্যভাবে পিছিয়ে। {data.atRiskStudents.length>0?`মোট ${data.atRiskStudents.length} জন শিক্ষার্থী অন্তত একটি বিষয়ে F গ্রেড পেয়েছে, যাদের জন্য পৃথক পর্যবেক্ষণ প্রয়োজন।`:""}
+        </>):"এই সময়কালে পর্যাপ্ত ফলাফল-ডেটা নেই বিস্তারিত বিশ্লেষণের জন্য।"}
+      </div>
+      <ol style={{margin:"6px 0 4px",paddingLeft:20,fontSize:12}}>
+        {data.subjectBreakdown[0]&&<li style={{marginBottom:6,lineHeight:1.6}}><b>রেমেডিয়াল ক্লাস:</b> {data.subjectBreakdown.slice(0,3).map(s=>s.subject).join(", ")}-এ অতিরিক্ত সহায়ক ক্লাস চালুর সুপারিশ।</li>}
+        {data.atRiskStudents.length>0&&<li style={{marginBottom:6,lineHeight:1.6}}><b>ঝুঁকিপূর্ণ শিক্ষার্থী ট্র্যাকিং:</b> {data.atRiskStudents.length} জন শিক্ষার্থীর সাপ্তাহিক অগ্রগতি পর্যালোচনা ও প্রয়োজনে অভিভাবকের সাথে যোগাযোগ।</li>}
+        {flags.length>0&&<li style={{marginBottom:6,lineHeight:1.6}}><b>নিচের "বিশেষ দৃষ্টি প্রয়োজন" অংশে চিহ্নিত বিষয়গুলো</b> নিয়ে সংশ্লিষ্ট শিক্ষকদের সাথে সরাসরি আলোচনার সুপারিশ।</li>}
+        <li style={{lineHeight:1.6}}><b>পরবর্তী মাসে পুনঃপর্যালোচনা:</b> এই সুপারিশগুলো বাস্তবায়নের পর পরবর্তী প্রতিবেদনে একই সূচক তুলনা করে কার্যকারিতা যাচাই করা হবে।</li>
+      </ol>
+
+      {/* ৯ লেসন প্ল্যান ও ডেডলাইন */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>৯। লেসন প্ল্যান ও ডেডলাইন সম্মতি</h2>
+      <table>
+        <thead><tr><th>শিক্ষকের নাম</th><th style={{textAlign:"center"}}>জমা</th><th style={{textAlign:"center"}}>অনুমোদিত</th><th style={{textAlign:"center"}}>সংশোধনের জন্য ফেরত</th><th style={{textAlign:"center"}}>ডেডলাইন মিস</th></tr></thead>
+        <tbody>
+          {data.lpDeadlineReport.map(l=>(
+            <tr key={l.teacher}>
+              <td>{l.teacher}</td>
+              <td style={{textAlign:"center"}}>{l.submitted}</td>
+              <td style={{textAlign:"center",color:"#1e6b3a"}}>{l.approved}</td>
+              <td style={{textAlign:"center"}}>{l.returned}</td>
+              <td style={{textAlign:"center",color:l.dlMissed>0?"#a32d2d":"inherit",fontWeight:l.dlMissed>0?700:400}}>{l.dlMissed}/{l.dlTotal}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ১০ পর্যবেক্ষণ */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>১০। শ্রেণিকক্ষ পর্যবেক্ষণ সারাংশ</h2>
+      <div style={{fontSize:12.3,lineHeight:1.85,textAlign:"justify",marginBottom:8}}>
+        এই সময়কালে মোট <b>{data.peerObsCount}টি পিয়ার ক্লাস পর্যবেক্ষণ</b> সম্পন্ন হয়েছে{data.peerObsAvg!=null?<> (গড় স্কোর {data.peerObsAvg}/100)</>:""}। {data.nonObservers.length>0?<>নিম্নলিখিত <b>{data.nonObservers.length} জন শিক্ষক</b> এই সময়ে কোনো সহকর্মীর ক্লাস পর্যবেক্ষণ করেননি: {data.nonObservers.join(", ")}।</>:"সকল শিক্ষক অন্তত একটি পর্যবেক্ষণ সম্পন্ন করেছেন।"}
+      </div>
+
+      {/* ১১ বিশেষ দৃষ্টি */}
+      <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>১১। বিশেষ দৃষ্টি প্রয়োজন এমন ক্ষেত্র (সারসংক্ষেপ)</h2>
+      <table>
+        <thead><tr><th style={{width:28}}>নং</th><th>বিষয়</th><th>বিস্তারিত</th></tr></thead>
+        <tbody>
+          {flags.length===0&&<tr><td colSpan="3" style={{textAlign:"center",color:"#888"}}>এই সময়কালে উল্লেখযোগ্য কোনো সমস্যা চিহ্নিত হয়নি।</td></tr>}
+          {flags.map((f,i)=>(
+            <tr key={i}><td style={{textAlign:"center"}}>{i+1}</td><td>{f.area}</td><td>{f.detail}</td></tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* স্বাক্ষর */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginTop:56}}>
+        <div style={{textAlign:"center",fontSize:12}}><div style={{borderTop:"1px solid #2a2a2a",marginBottom:6,paddingTop:6}}>&nbsp;</div>{ADMIN_TEACHER}<br/><span style={{color:"#5a5a5a",fontSize:11}}>একাডেমিক ইনচার্জ</span></div>
+        <div style={{textAlign:"center",fontSize:12}}><div style={{borderTop:"1px solid #2a2a2a",marginBottom:6,paddingTop:6}}>&nbsp;</div>Sabbir Ahmad<br/><span style={{color:"#5a5a5a",fontSize:11}}>অধ্যক্ষ</span></div>
+        <div style={{textAlign:"center",fontSize:12}}><div style={{borderTop:"1px solid #2a2a2a",marginBottom:6,paddingTop:6}}>&nbsp;</div>Ehsanul Mahbub Rubel<br/><span style={{color:"#5a5a5a",fontSize:11}}>পরিচালক</span></div>
+      </div>
+
+      <div style={{marginTop:30,paddingTop:10,borderTop:"1px solid #c9c9c9",fontSize:9.5,color:"#999",textAlign:"center"}}>
+        এই প্রতিবেদনটি HAIS (Heritage Academic Intelligence System) থেকে স্বয়ংক্রিয়ভাবে তৈরি — জেনারেট হয়েছে {genDate}, {genTime}
+      </div>
+    </div>
+  </div>);
+}
+function SumCell({num,label}){
+  return(<div style={{background:"#f4f2ec",padding:"12px 8px",textAlign:"center"}}>
+    <div style={{fontSize:22,fontWeight:700,color:"#2a2a2a"}}>{num}</div>
+    <div style={{fontSize:10.5,color:"#5a5a5a",marginTop:3,lineHeight:1.3}}>{label}</div>
+  </div>);
+}
+
 function NotificationPanel({deadline, dlSubmissions, onClose}){
   const info=dlTypeInfo(deadline.type);
   const targetTeachers=deadline.teachers&&deadline.teachers.length>0?deadline.teachers:TEACHERS;
@@ -8910,7 +9573,10 @@ function NotificationPanel({deadline, dlSubmissions, onClose}){
 
   const copyNotice=()=>{
     const due=new Date(deadline.dueDate).toLocaleDateString("bn-BD");
-    const lines=[
+    // ── FIX: আগে এখানে 'lines' নিজের সংজ্ঞার ভেতরেই নিজেকে রেফারেন্স করছিল (TDZ error) —
+    // "কপি নোটিশ" বাটনে ক্লিক করলেই ক্র্যাশ করত। এখন আগে raw লাইনগুলো তৈরি করে, তারপর পরপর
+    // দুটো খালি লাইন এড়াতে আলাদা ধাপে ফিল্টার করা হচ্ছে।
+    const rawLines=[
       `📢 Heritage Public School — ${info.emoji} ${info.label} নোটিশ`,
       ``,
       `বিষয়: ${deadline.title}`,
@@ -8922,7 +9588,8 @@ function NotificationPanel({deadline, dlSubmissions, onClose}){
       ``,
       `অনুগ্রহ করে নির্ধারিত সময়ের মধ্যে জমা দিন।`,
       `— একাডেমিক ইনচার্জ, Heritage Public School`,
-    ].filter(l=>l!==undefined&&!(l===""&&lines&&lines[lines.length-1]==="")).join("\n");
+    ].filter(l=>l!==undefined);
+    const lines=rawLines.filter((l,i)=>!(l===""&&rawLines[i-1]==="")).join("\n");
     navigator.clipboard.writeText(lines).then(()=>alert("✓ নোটিশ কপি হয়েছে! WhatsApp/বার্তায় পেস্ট করুন।"));
   };
 
@@ -9759,7 +10426,8 @@ const PAGES=[
   {id:"arch",label:"🏛 আর্কিটেকচার",adminOnly:true},
   {id:"whitelist",label:"📋 অনুমোদিত Email",adminOnly:true},
   {id:"coord",label:"👑 ইনচার্জ",adminOnly:true},
-  {id:"aic_obs",label:"🔒 আমার পর্যবেক্ষণ",adminOnly:true}
+  {id:"aic_obs",label:"🔒 আমার পর্যবেক্ষণ",adminOnly:true},
+  {id:"monthly_report",label:"📄 মাসিক রিপোর্ট",adminOnly:true}
 ];
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -11055,11 +11723,11 @@ function App(){
       {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={ADMIN_TEACHERS.includes(currentUser)} teacherSubjects={teacherSubjects} dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate}/>}
       {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser}/>}
       {page==="teachers" &&(ADMIN_TEACHERS.includes(currentUser)?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} setObsData={setObsData} currentUser={currentUser} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} removedTeachers={removedTeachers} setRemovedTeachers={setRemovedTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
-      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS}/>}
+      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
       {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS}/>}
       {page==="ssctarget" &&<SSCTarget results={results} STUDENTS={STUDENTS} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} weeklyTargets={weeklyTargets} setWeeklyTargets={setWeeklyTargets} targetFulfillments={targetFulfillments} setTargetFulfillments={setTargetFulfillments} selfReports={selfReports} setSelfReports={setSelfReports} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
       {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
-      {page==="observe"  &&(ADMIN_TEACHERS.includes(currentUser)?<TeacherObservation obsData={obsData} setObsData={setObsData}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
+      {page==="observe"  &&(ADMIN_TEACHERS.includes(currentUser)?<TeacherObservation obsData={obsData} setObsData={setObsData} STUDENTS={STUDENTS}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="peer_obs" &&<PeerObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS}/>}
       {page==="kpi"      &&(ADMIN_TEACHERS.includes(currentUser)?<KPI results={results} lessonPlans={lessonPlans} obsData={obsData} dlSubmissions={dlSubmissions} deadlines={deadlines} STUDENTS={STUDENTS} examSchedule={examSchedule} teacherSubjects={teacherSubjects}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="events"      &&<UpcomingEvents deadlines={deadlines} setDeadlines={setDeadlines} dlSubmissions={dlSubmissions} setDlSubmissions={setDlSubmissions} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)}/>}
@@ -11067,6 +11735,7 @@ function App(){
       {page==="whitelist"  &&(ADMIN_TEACHERS.includes(currentUser)?<WhitelistManager/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="coord"       &&(currentUser===ADMIN_TEACHER?<CoordinatorDashboard taskStatus={coordTaskStatus} onToggle={handleCoordToggle} onPageJump={handlePageChange}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
       {page==="aic_obs"     &&(currentUser===ADMIN_TEACHER?<AICObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
+      {page==="monthly_report" &&(ADMIN_TEACHERS.includes(currentUser)?<MonthlyReport results={results} lessonPlans={lessonPlans} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} currentUser={currentUser} onClose={()=>handlePageChange("dashboard")}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
     </div>
   </div>);
 }
