@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
-<title>HAIS — Heritage Academic Intelligence System v7.3</title>
+<title>HAIS — Heritage Academic Intelligence System v7.4</title>
 <meta name="description" content="Heritage Public School — শিক্ষক ও ফলাফল ব্যবস্থাপনা"/>
 <meta name="theme-color" content="#5344b5"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -104,6 +104,7 @@ button{transition:transform .12s var(--ease),opacity .12s var(--ease),background
 button:active{transform:scale(0.97)}
 :focus-visible{outline:2px solid #5344b5;outline-offset:2px}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pageFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes scaleIn{from{opacity:0;transform:scale(0.93)}to{opacity:1;transform:scale(1)}}
 @keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(83,68,181,0.18)}50%{box-shadow:0 0 0 8px rgba(83,68,181,0)}}
 @keyframes slideUpSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -128,7 +129,7 @@ button:active{transform:scale(0.97)}
 .app-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .app-content{padding:12px;padding-bottom:24px;overscroll-behavior-y:contain}
 .app-content-inner{max-width:840px;margin:0 auto}
-.app-page-fade{animation:fadeInUp 0.22s var(--ease) both}
+.app-page-fade{animation:pageFadeIn 0.18s linear both}
 .app-bottom-tabs{display:none}
 .app-more-sheet-backdrop{position:fixed;inset:0;background:rgba(20,10,50,0.42);z-index:998;animation:sheetBackdropIn .18s ease both}
 .app-more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;z-index:999;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(20,10,60,0.25);max-height:75vh;overflow-y:auto;animation:slideUpSheet .26s var(--ease) both;padding-bottom:env(safe-area-inset-bottom)}
@@ -12208,7 +12209,7 @@ function App(){
     setShowExportMenu(false);
   };
 
-  if(!dbReady)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS v7.3 লোড হচ্ছে...</div><div style={{color:"rgba(255,255,255,0.7)",fontSize:12}}>IndexedDB সংযোগ স্থাপন হচ্ছে</div></div>);
+  if(!dbReady)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS v7.4 লোড হচ্ছে...</div><div style={{color:"rgba(255,255,255,0.7)",fontSize:12}}>IndexedDB সংযোগ স্থাপন হচ্ছে</div></div>);
   if(!currentUser)return <LoginScreen onLogin={handleLogin}/>;
   if(!fbLoaded)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
     <div style={{fontSize:44}}>🏫</div>
@@ -12274,7 +12275,7 @@ function App(){
         <div className="app-sidebar">
           <div style={{padding:"18px 16px 14px",borderBottom:`1px solid ${C.bd}`}}>
             <div style={{fontWeight:800,fontSize:16,color:C.pu}}>🏫 HAIS</div>
-            <div style={{fontSize:10.5,color:C.mu,marginTop:2}}>Heritage Public School • v7.3</div>
+            <div style={{fontSize:10.5,color:C.mu,marginTop:2}}>Heritage Public School • v7.4</div>
           </div>
           <div style={{flex:1,paddingBottom:12}}>
             {visiblePages.map(p=>(<React.Fragment key={p.id}>
@@ -12286,7 +12287,7 @@ function App(){
 
         <div className="app-main">
           <div style={{background:C.pu,color:"#fff",padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 10px #5344b540"}}>
-            <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.3</div></div>
+            <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.4</div></div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <div onClick={()=>setShowUserProfile(true)} style={{textAlign:"right",marginRight:4,cursor:"pointer",padding:"4px 8px",borderRadius:8,border:"1px solid #ffffff30",background:"rgba(255,255,255,0.08)",transition:"background 0.15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
@@ -12373,7 +12374,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
 /* ═══ HAIS PWA Manager v7.0 ═══ */
-const HAIS_VERSION='7.3';
+const HAIS_VERSION='7.4';
 let haisDeferredPrompt=null;
 
 /* ── Service Worker নিবন্ধন (Auto-Update মোড) ──
