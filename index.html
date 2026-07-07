@@ -73,33 +73,86 @@
 })();
 </script>
 <style>
+:root{
+  --pu:#5344b5; --pu-dark:#443a94; --pu-light:#ede9fd;
+  --bg:#f0eeff; --surface:#ffffff; --border:rgba(0,0,0,0.09);
+  --text:#1a1a2e; --muted:#6b6b8a;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+  --shadow-sm:0 1px 3px rgba(20,10,60,0.06),0 1px 2px rgba(20,10,60,0.04);
+  --shadow-md:0 4px 14px rgba(20,10,60,0.08);
+  --shadow-lg:0 12px 32px rgba(20,10,60,0.14);
+  --ease:cubic-bezier(0.22,0.61,0.36,1);
+  --sidebar-w:248px;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:sans-serif;background:#f0eeff;color:#1a1a2e;min-height:100vh}
-input,select,button{font-family:sans-serif}
-::-webkit-scrollbar{width:4px;height:4px}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none;}
+input,select,button{font-family:inherit}
+button{-webkit-tap-highlight-color:transparent}
+::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:#c0b8f0;border-radius:4px}
+@media(min-width:1024px) and (pointer:fine){::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{border:2px solid transparent;background-clip:padding-box}}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{padding:8px 10px;background:#ede9fd;color:#5344b5;text-align:left;font-weight:600;border-bottom:2px solid #5344b520}
 td{padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.07)}
 tr:hover td{background:#f8f7ff}
-input[type=number],input[type=text]{width:100%;padding:8px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;font-size:14px;outline:none}
+input[type=number],input[type=text]{width:100%;padding:8px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;font-size:14px;outline:none;transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}
 input:focus,select:focus{border-color:#5344b5;box-shadow:0 0 0 2px #5344b520}
-select{padding:8px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;font-size:14px;outline:none;background:#fff}
+select{padding:8px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;font-size:14px;outline:none;background:#fff;transition:border-color .15s var(--ease)}
+button{transition:transform .12s var(--ease),opacity .12s var(--ease),background .15s var(--ease),box-shadow .15s var(--ease)}
+button:active{transform:scale(0.97)}
+:focus-visible{outline:2px solid #5344b5;outline-offset:2px}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 @keyframes scaleIn{from{opacity:0;transform:scale(0.93)}to{opacity:1;transform:scale(1)}}
 @keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(83,68,181,0.18)}50%{box-shadow:0 0 0 8px rgba(83,68,181,0)}}
+@keyframes slideUpSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes sheetBackdropIn{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.001ms!important;animation-iteration-count:1!important;transition-duration:0.001ms!important;}}
 .dash-card{animation:fadeInUp 0.38s ease both}
 .dash-card:nth-child(1){animation-delay:0.04s}.dash-card:nth-child(2){animation-delay:0.09s}
 .dash-card:nth-child(3){animation-delay:0.14s}.dash-card:nth-child(4){animation-delay:0.19s}
 .dash-card:nth-child(5){animation-delay:0.24s}.dash-card:nth-child(6){animation-delay:0.29s}
 .dash-card:nth-child(7){animation-delay:0.34s}.dash-card:nth-child(8){animation-delay:0.39s}
-.stat-card{transition:transform 0.17s ease,box-shadow 0.17s ease;cursor:default}
+.stat-card{transition:transform 0.17s var(--ease),box-shadow 0.17s var(--ease);cursor:default}
 .stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(83,68,181,0.14)}
-.hais-card{transition:box-shadow 0.18s ease}
+.hais-card{transition:box-shadow 0.18s var(--ease)}
 .hais-card:hover{box-shadow:0 6px 20px rgba(83,68,181,0.10)}
 .trend-bar{transition:opacity 0.15s,transform 0.15s;transform-origin:bottom}
 .trend-bar:hover{opacity:1!important;transform:scaleY(1.07)}
 .rank-first{animation:scaleIn 0.3s ease both 0.25s}
+
+/* ══ Responsive app shell — sidebar on desktop, bottom tabs on mobile ══ */
+.app-shell{display:flex;min-height:100vh;align-items:stretch}
+.app-sidebar{display:none}
+.app-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+.app-content{padding:12px;padding-bottom:24px;overscroll-behavior-y:contain}
+.app-content-inner{max-width:840px;margin:0 auto}
+.app-page-fade{animation:fadeInUp 0.22s var(--ease) both}
+.app-mobile-topnav{display:flex;gap:4px;overflow-x:auto;background:#fff;padding:8px 10px;border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.app-mobile-topnav::-webkit-scrollbar{display:none}
+.app-bottom-tabs{display:none}
+.app-more-sheet-backdrop{position:fixed;inset:0;background:rgba(20,10,50,0.42);z-index:998;animation:sheetBackdropIn .18s ease both}
+.app-more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;z-index:999;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(20,10,60,0.25);max-height:75vh;overflow-y:auto;animation:slideUpSheet .26s var(--ease) both;padding-bottom:env(safe-area-inset-bottom)}
+
+@media(min-width:1024px){
+  .app-sidebar{display:flex;flex-direction:column;width:var(--sidebar-w);flex-shrink:0;position:sticky;top:0;align-self:flex-start;height:100vh;background:#fff;border-right:1px solid var(--border);overflow-y:auto}
+  .app-mobile-topnav{display:none}
+  .app-bottom-tabs{display:none!important}
+  .app-content{padding:22px 28px}
+  .app-content-inner{max-width:920px;margin:0}
+}
+@media(max-width:1023px){
+  .app-bottom-tabs{display:flex;position:sticky;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);box-shadow:0 -2px 14px rgba(20,10,60,0.08);z-index:90;padding-bottom:env(safe-area-inset-bottom)}
+  .app-content{padding-bottom:8px}
+}
+.sidebar-link{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13.5px;color:var(--muted);text-decoration:none;cursor:pointer;border-left:3px solid transparent;transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease);white-space:nowrap}
+.sidebar-link:hover{background:#f8f7ff;color:var(--pu)}
+.sidebar-link.active{background:var(--pu-light);color:var(--pu);border-left-color:var(--pu);font-weight:700}
+.sidebar-group-label{font-size:10px;letter-spacing:0.6px;color:#9a94c0;text-transform:uppercase;padding:14px 16px 4px;font-weight:700}
+.bottom-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:7px 2px 6px;color:var(--muted);cursor:pointer;font-size:9.5px;font-weight:600;background:none;border:none;transition:color .15s var(--ease)}
+.bottom-tab .bt-icon{font-size:19px;line-height:1;transition:transform .15s var(--ease)}
+.bottom-tab.active{color:var(--pu)}
+.bottom-tab.active .bt-icon{transform:translateY(-1px) scale(1.08)}
 </style>
 </head>
 <body>
@@ -2325,6 +2378,106 @@ function computeGroupFactors(allRes, groupKeyFn){
 function computeSubjectFactors(allRes){ return computeGroupFactors(allRes, r=>r.subject); }
 function computeClassFactors(allRes){ return computeGroupFactors(allRes, r=>r.cls); }
 
+/* ══════════════════════════════════════════════════════════════
+   ★★★ ছাত্র র‍্যাংকিং ইঞ্জিন — "শ্রেণি র‍্যাংক" + "স্কুল র‍্যাংক (SPI)" ★★★
+   ══════════════════════════════════════════════════════════════
+   মূলনীতি:
+   ১. শ্রেণি র‍্যাংক (Class Rank) — raw % দিয়ে, কারণ একই শ্রেণির মধ্যে raw%
+      তুলনা ন্যায্য (একই সিলেবাস, একই পরীক্ষা-কাঠামো)।
+   ২. স্কুল র‍্যাংক (School Rank) — raw % দিয়ে কখনো না, কারণ Class IV আর Class X-এর
+      পরীক্ষার কঠিনতা আলাদা। তার বদলে Standardized Performance Index (SPI) —
+      প্রতিটি ছাত্রকে তার নিজের কোহোর্টের (শ্রেণি/বিভাগ) গড় ও স্ট্যান্ডার্ড ডেভিয়েশনের
+      সাপেক্ষে z-score-এ রূপান্তর করে, তারপর সব কোহোর্টের z-score একসাথে র‍্যাংক করা হয়।
+      এটাই standardized testing-এর মূলনীতি (যেমন বিভিন্ন সেট প্রশ্নের স্কোর তুলনা করার পদ্ধতি)।
+   ৩. SSC (Class X) ছাত্রদের জন্য বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা — প্রতিটি আলাদা কোহোর্ট
+      (নিজ বিভাগের মধ্যেই normalize, কারণ বিভাগভেদে বিষয় ও কঠিনতা ভিন্ন)। বিভাগ
+      নির্ধারিত না থাকলে ছাত্রকে "অবিভাজিত" আলাদা cohort-এ রাখা হয় — কখনো অনুমান
+      করে ভুল cohort-এ বসানো হয় না।
+   ৪. Tie হলে যুগ্ম-র‍্যাংক (dense rank) — কাউকে arbitrary ভাবে ওপরে-নিচে বসানো হয় না।
+   ৫. কম ডেটা থাকা ছাত্রের জন্য confidence স্কোর — UI-তে "⚠️ সীমিত ডেটা" দেখানোর জন্য।
+   ══════════════════════════════════════════════════════════════ */
+const RANK_SHRINK_K=4; // এই সংখ্যক পরীক্ষার ফলাফল থাকলে "পূর্ণ আস্থা" (confidence=100%) ধরা হবে
+
+// SSC ছাত্রের বিভাগ-cohort key — বিভাগ না জানা থাকলে "অবিভাজিত" আলাদা cohort
+function studentCohortKey(cls,name,studentDepartments={}){
+  if(cls===SSC_CLASS){
+    const dept=studentDepartments[name];
+    return dept?`${cls}__${dept}`:`${cls}__অবিভাজিত`;
+  }
+  return cls;
+}
+
+// রেজাল্ট এন্ট্রি নির্দিষ্ট সময়সীমার (মাসিক/বাৎসরিক) মধ্যে পড়ে কিনা
+function inRankPeriod(examDateStr,period,refDate){
+  if(!examDateStr){
+    return period==="yearly";
+  }
+  const d=new Date(examDateStr);
+  if(isNaN(d.getTime()))return period==="yearly";
+  if(period==="monthly")return d.getFullYear()===refDate.getFullYear()&&d.getMonth()===refDate.getMonth();
+  return d.getFullYear()===refDate.getFullYear();
+}
+
+// dense/joint rank — সমান মান হলে একই র‍্যাংক পাবে
+function denseRank(arr,key){
+  const sorted=[...arr].sort((a,b)=>b[key]-a[key]);
+  let rank=0,lastVal=null,seen=0;
+  return sorted.map(s=>{
+    seen++;
+    if(lastVal===null||Math.abs(s[key]-lastVal)>1e-9){rank=seen;lastVal=s[key];}
+    return{...s,_rank:rank,_total:arr.length};
+  });
+}
+
+/**
+ * প্রধান ফাংশন — নির্দিষ্ট সময়কালের (period) জন্য সব ছাত্রের Class Rank ও School Rank(SPI) গণনা করে।
+ */
+function computeStudentRankings(allRes,studentDepartments={},period="yearly",refDate=new Date()){
+  const periodRes=allRes.filter(r=>!r.absent&&r.marks!=null&&inRankPeriod(r.examDate,period,refDate));
+  const map={};
+  periodRes.forEach(r=>{
+    const key=r.name+"||"+r.cls;
+    if(!map[key])map[key]={name:r.name,cls:r.cls,sum:0,count:0};
+    map[key].sum+=r.marks/(r.fullMarks||100)*100;
+    map[key].count++;
+  });
+  const students=Object.values(map).map(s=>({...s,avg:s.sum/s.count,cohort:studentCohortKey(s.cls,s.name,studentDepartments)}));
+  if(!students.length)return{byKey:{},cohortStats:{},count:0};
+
+  const cohortGroups={};
+  students.forEach(s=>{(cohortGroups[s.cohort]=cohortGroups[s.cohort]||[]).push(s);});
+  const cohortStats={};
+  Object.entries(cohortGroups).forEach(([cohort,arr])=>{
+    const n=arr.length;
+    const mean=arr.reduce((a,b)=>a+b.avg,0)/n;
+    const variance=n>1?arr.reduce((a,b)=>a+(b.avg-mean)**2,0)/(n-1):0;
+    cohortStats[cohort]={n,mean,sd:Math.sqrt(variance)};
+  });
+  students.forEach(s=>{
+    const cst=cohortStats[s.cohort];
+    s.cohortN=cst.n;
+    s.confidence=Math.min(1,s.count/RANK_SHRINK_K);
+    s.spi=cst.sd>0.01?(s.avg-cst.mean)/cst.sd:0;
+  });
+
+  const clsGroups={};
+  students.forEach(s=>{(clsGroups[s.cls]=clsGroups[s.cls]||[]).push(s);});
+  const byKey={};
+  Object.values(clsGroups).forEach(arr=>{
+    denseRank(arr,"avg").forEach(s=>{
+      byKey[s.name+"||"+s.cls]={...s,classRank:s._rank,classTotal:s._total};
+    });
+  });
+
+  const schoolRanked=denseRank(Object.values(byKey),"spi");
+  schoolRanked.forEach(s=>{
+    const k=s.name+"||"+s.cls;
+    byKey[k]={...byKey[k],schoolRank:s._rank,schoolTotal:s._total};
+  });
+
+  return{byKey,cohortStats,count:students.length};
+}
+
 /* KPI গণনা ফাংশন — কেন্দ্রীয় */
 function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmissions={}, examSchedule=[], teacherSubjects={}){
   const tr=allRes.filter(r=>r.teacher===teacher&&!r.absent);
@@ -3254,7 +3407,7 @@ function LowAvgStudentsCard({STUDENTS,allRes}){
   );
 }
 
-function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,currentUser="",examSchedule=[],setExamSchedule=()=>{},isAdmin=false,teacherSubjects={},
+function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[],dlSubmissions={},lastExportTs=null,studentProfiles={},setStudentProfiles,studentDepartments={},currentUser="",examSchedule=[],setExamSchedule=()=>{},isAdmin=false,teacherSubjects={},
   dailyRoutine=[],setDailyRoutine=()=>{},meetingAgenda=[],setMeetingAgenda=()=>{},specialTasks=[],setSpecialTasks=()=>{},routineSubtasks={},setRoutineSubtasks=()=>{},lastCarryDate=null,setLastCarryDate=()=>{}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [dashProfile,setDashProfile]=useState(null);// {type:"teacher"|"student", name, cls}
   const [showHealthModal,setShowHealthModal]=useState(false);
@@ -3320,20 +3473,22 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
   };
 
   // ── মাসের সেরা শিক্ষক: চলতি মাসের KPI ──
-  const kpiAllDash=TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
+  const kpiAllDash=denseRank(TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)})).filter(k=>k.score>0),"score").map(k=>({...k,rank:k._rank}));
   const teacherOfMonth=kpiAllDash.length>0?kpiAllDash[0]:null;
 
-  // ── মাসের সেরা ছাত্র: চলতি মাসের ফলাফল ──
+  // ── মাসের সেরা ছাত্র: চলতি মাসের ফলাফল — SPI (cohort-normalized) দিয়ে, raw% দিয়ে ক্রস-গ্রেড তুলনা না ──
   const allStudentsList=Object.entries(STUDENTS).flatMap(([cls,names])=>names.map(n=>({name:n,cls})));
-  const studentScores=allStudentsList.map(({name,cls})=>{
-    const sr=monthRes.filter(r=>r.name===name&&!r.absent&&r.marks!=null);
-    if(!sr.length)return null;
-    const avg2=Math.round(sr.reduce((a,b)=>a+(b.marks/(b.fullMarks||100)*100),0)/sr.length);
+  const monthRankInfo=computeStudentRankings(allRes,studentDepartments,"monthly",nowD);
+  const studentScoresRaw=allStudentsList.map(({name,cls})=>{
+    const rec=monthRankInfo.byKey[name+"||"+cls];
+    if(!rec)return null;
+    const sr=monthRes.filter(r=>r.name===name&&r.cls===cls&&!r.absent&&r.marks!=null);
     const sorted2=[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
     const trend2=sorted2.length>=2?Math.round(sorted2[sorted2.length-1].marks/(sorted2[sorted2.length-1].fullMarks||100)*100)-Math.round(sorted2[0].marks/(sorted2[0].fullMarks||100)*100):0;
-    const [grade2,gc2]=getGrade(avg2,100,33);
-    return{name,cls,avg:avg2,trend:trend2,grade:grade2,gc:gc2,count:sr.length};
-  }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
+    const [grade2,gc2]=getGrade(Math.round(rec.avg),100,33);
+    return{name,cls,avg:Math.round(rec.avg),spi:rec.spi,trend:trend2,grade:grade2,gc:gc2,count:rec.count};
+  }).filter(Boolean);
+  const studentScores=denseRank(studentScoresRaw,"spi").map(s=>({...s,rank:s._rank}));
   const studentOfMonth=studentScores.length>0?studentScores[0]:null;
 
   // ── কতটুকু মাস পেরিয়েছে (প্রগতি বার) ──
@@ -3410,27 +3565,27 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 {/* শিক্ষক র‍্যাংকিং */}
                 <div>
-                  {kpiAllDash.slice(0,5).map((k,i)=>(
+                  {kpiAllDash.slice(0,5).map((k)=>(
                     <div key={k.teacher} onClick={()=>setDashProfile({type:"teacher",name:k.teacher})}
                       style={{display:"flex",alignItems:"center",gap:5,padding:"4px 4px",borderBottom:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",borderRadius:4,transition:"background 0.12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <span style={{fontSize:11,minWidth:16}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`}</span>
-                      <span style={{flex:1,fontSize:10,color:i===0?"#fff":"rgba(255,255,255,0.65)",fontWeight:i===0?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{k.teacher}</span>
-                      <span style={{fontSize:10,fontWeight:700,color:i===0?"#ffd700":"rgba(255,255,255,0.5)"}}>{k.score}</span>
+                      <span style={{fontSize:11,minWidth:16}}>{k.rank===1?"🥇":k.rank===2?"🥈":k.rank===3?"🥉":`${k.rank}.`}</span>
+                      <span style={{flex:1,fontSize:10,color:k.rank===1?"#fff":"rgba(255,255,255,0.65)",fontWeight:k.rank===1?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{k.teacher}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:k.rank===1?"#ffd700":"rgba(255,255,255,0.5)"}}>{k.score}</span>
                     </div>
                   ))}
                 </div>
                 {/* ছাত্র র‍্যাংকিং */}
                 <div>
-                  {studentScores.slice(0,5).map((s,i)=>(
+                  {studentScores.slice(0,5).map((s)=>(
                     <div key={s.name} onClick={()=>setDashProfile({type:"student",name:s.name,cls:s.cls})}
                       style={{display:"flex",alignItems:"center",gap:5,padding:"4px 4px",borderBottom:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",borderRadius:4,transition:"background 0.12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <span style={{fontSize:11,minWidth:16}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`}</span>
-                      <span style={{flex:1,fontSize:10,color:i===0?"#fff":"rgba(255,255,255,0.65)",fontWeight:i===0?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-                      <span style={{fontSize:10,fontWeight:700,color:i===0?"#ffd700":"rgba(255,255,255,0.5)"}}>{s.avg}%</span>
+                      <span style={{fontSize:11,minWidth:16}}>{s.rank===1?"🥇":s.rank===2?"🥈":s.rank===3?"🥉":`${s.rank}.`}</span>
+                      <span style={{flex:1,fontSize:10,color:s.rank===1?"#fff":"rgba(255,255,255,0.65)",fontWeight:s.rank===1?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:s.rank===1?"#ffd700":"rgba(255,255,255,0.5)"}}>{s.avg}%</span>
                     </div>
                   ))}
                 </div>
@@ -3526,22 +3681,30 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       <TeacherOverview allRes={allRes} lessonPlans={lessonPlans} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule} teacherSubjects={teacherSubjects}/>
     </Card>
 
-    {/* 🎖️ বার্ষিক সেরা — সারা বছরের সঞ্চিত পারফরমেন্স */}
+    {/* 🎖️ বার্ষিক সেরা — এই শিক্ষাবর্ষের (ক্যালেন্ডার বছর) পারফরমেন্স */}
     {allRes.length>0&&(()=>{
-      // বার্ষিক সেরা ছাত্র (সব সময়ের ডেটা)
+      // বার্ষিক সেরা ছাত্র — SPI (cohort-normalized) দিয়ে, এই বছরের ডেটা থেকে; raw% দিয়ে ক্রস-গ্রেড তুলনা না
       const yearStudents=Object.entries(STUDENTS).flatMap(([cls,names])=>names.map(n=>({name:n,cls})));
+      const yearRankInfo=computeStudentRankings(allRes,studentDepartments,"yearly",nowD);
+      const yearRes=allRes.filter(r=>inRankPeriod(r.examDate||r.savedAt,"yearly",nowD));
       const yearStudentScores=yearStudents.map(({name,cls})=>{
-        const sr=allRes.filter(r=>r.name===name&&!r.absent&&r.marks!=null);
-        if(!sr.length)return null;
-        const avg2=Math.round(sr.reduce((a,b)=>a+(b.marks/(b.fullMarks||100)*100),0)/sr.length);
+        const rec=yearRankInfo.byKey[name+"||"+cls];
+        if(!rec)return null;
+        const sr=yearRes.filter(r=>r.name===name&&r.cls===cls&&!r.absent&&r.marks!=null);
         const sorted2=[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
         const trend2=sorted2.length>=2?Math.round(sorted2[sorted2.length-1].marks/(sorted2[sorted2.length-1].fullMarks||100)*100)-Math.round(sorted2[0].marks/(sorted2[0].fullMarks||100)*100):0;
-        const [grade2,gc2]=getGrade(avg2,100,33);
-        return{name,cls,avg:avg2,trend:trend2,grade:grade2,gc:gc2,count:sr.length};
-      }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
+        const [grade2,gc2]=getGrade(Math.round(rec.avg),100,33);
+        return{name,cls,avg:Math.round(rec.avg),spi:rec.spi,trend:trend2,grade:grade2,gc:gc2,count:rec.count};
+      }).filter(Boolean).sort((a,b)=>b.spi-a.spi);
 
-      // বার্ষিক সেরা শিক্ষক (সব সময়ের KPI)
-      const yearTeachers=TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)})).filter(k=>k.score>0).sort((a,b)=>b.score-a.score);
+      // বার্ষিক সেরা শিক্ষক — এই বছরের KPI (dense rank)
+      const yearLPs={
+        _v2:(lessonPlans._v2||[]).filter(p=>inRankPeriod(p.submittedAt||p.reviewedAt,"yearly",nowD)),
+        ...Object.fromEntries(Object.entries(lessonPlans||{}).filter(([k])=>k!=="_v2")),
+      };
+      const yearObsData={...obsData,peerObservations:(obsData.peerObservations||[]).filter(o=>inRankPeriod(o.dateISO,"yearly",nowD))};
+      const yearTeachersScored=TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,yearRes,yearLPs,yearObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)})).filter(k=>k.score>0);
+      const yearTeachers=denseRank(yearTeachersScored,"score").map(k=>({...k,rank:k._rank}));
 
       if(!yearStudentScores.length&&!yearTeachers.length)return null;
       const curYearLabel=new Date().getFullYear();
@@ -3759,7 +3922,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
       <TeacherProfile name={dashProfile.name} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setDashProfile(null)} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule} teacherSubjects={teacherSubjects}/>
     )}
     {dashProfile&&dashProfile.type==="student"&&(
-      <StudentProfile name={dashProfile.name} cls={dashProfile.cls} results={results} onClose={()=>setDashProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} obsData={obsData}/>
+      <StudentProfile name={dashProfile.name} cls={dashProfile.cls} results={results} onClose={()=>setDashProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} obsData={obsData}/>
     )}
   </div>);
 }
@@ -3801,8 +3964,9 @@ function SubjectSparkLine({points,color=C.pu}){
   </div>);
 }
 
-function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProfiles,currentUser,obsData={}}){
+function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProfiles,studentDepartments={},currentUser,obsData={}}){
   const [tab,setTab]=useState("subject");
+  const [rankPeriod,setRankPeriod]=useState("yearly"); // "monthly" | "yearly"
   const allRes=Object.values(results).flat();
   const sr=allRes.filter(r=>r.name===name);
   const profile=studentProfiles?.[name]||{};
@@ -3838,25 +4002,18 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
   const bestSubject=subjectStats.length?[...subjectStats].sort((a,b)=>b.avgM-a.avgM)[0]:null;
   const worstSubject=subjectStats.length?[...subjectStats].sort((a,b)=>a.avgM-b.avgM)[0]:null;
 
-  // ── স্কুল-ব্যাপী ও শ্রেণি-ব্যাপী র‍্যাংক ──
+  // ── শ্রেণি র‍্যাংক (raw%) ও স্কুল র‍্যাংক (SPI, cohort-normalized) — মাসিক/বাৎসরিক টগল-সহ ──
   const rankInfo=useMemo(()=>{
-    const map={};
-    allRes.forEach(r=>{
-      if(r.absent||r.marks==null)return;
-      const key=r.name+"||"+r.cls;
-      if(!map[key])map[key]={name:r.name,cls:r.cls,sum:0,count:0};
-      map[key].sum+=r.marks/(r.fullMarks||100)*100;
-      map[key].count++;
-    });
-    const arr=Object.values(map).map(s=>({...s,avg:s.sum/s.count}));
-    if(!arr.length)return null;
-    const schoolSorted=[...arr].sort((a,b)=>b.avg-a.avg);
-    const classSorted=arr.filter(s=>s.cls===cls).sort((a,b)=>b.avg-a.avg);
-    const schoolRank=schoolSorted.findIndex(s=>s.name===name&&s.cls===cls)+1;
-    const classRank=classSorted.findIndex(s=>s.name===name&&s.cls===cls)+1;
-    if(schoolRank===0)return null; // এই ছাত্রের কোনো ফলাফল নেই
-    return{schoolRank,schoolTotal:schoolSorted.length,classRank,classTotal:classSorted.length};
-  },[allRes,name,cls]);
+    const {byKey}=computeStudentRankings(allRes,studentDepartments,rankPeriod,new Date());
+    const rec=byKey[name+"||"+cls];
+    if(!rec)return null;
+    const dept=cls===SSC_CLASS?(studentDepartments[name]||null):null;
+    return{
+      classRank:rec.classRank,classTotal:rec.classTotal,
+      schoolRank:rec.schoolRank,schoolTotal:rec.schoolTotal,
+      confidence:rec.confidence,examCount:rec.count,cohortN:rec.cohortN,dept,
+    };
+  },[allRes,name,cls,studentDepartments,rankPeriod]);
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:12}} onClick={onClose}>
@@ -3903,13 +4060,19 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
               </div>
             ))}
           </div>
-          {/* র‍্যাংক ব্যাজ: স্কুল-ব্যাপী ও শ্রেণি-ব্যাপী */}
-          {rankInfo&&(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:8}}>
+          {/* র‍্যাংক ব্যাজ: শ্রেণি র‍্যাংক (raw%) ও স্কুল র‍্যাংক (SPI, cohort-normalized) — মাসিক/বাৎসরিক */}
+          {rankInfo&&(<>
+            <div style={{display:"flex",gap:4,marginTop:10}}>
+              {[["monthly","এই মাস"],["yearly","এই বছর"]].map(([p,l])=>(
+                <button key={p} onClick={()=>setRankPeriod(p)} style={{flex:1,fontSize:10.5,fontWeight:700,padding:"4px 0",borderRadius:7,cursor:"pointer",
+                  border:"1px solid rgba(255,255,255,0.35)",background:rankPeriod===p?"rgba(255,255,255,0.9)":"transparent",color:rankPeriod===p?C.pu:"#fff"}}>{l}</button>
+              ))}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
               {[
-                {label:"সামগ্রিক (স্কুল) র‍্যাংক",rank:rankInfo.schoolRank,total:rankInfo.schoolTotal},
-                {label:"শ্রেণি র‍্যাংক",rank:rankInfo.classRank,total:rankInfo.classTotal},
-              ].map(({label,rank,total})=>{
+                {label:"শ্রেণি র‍্যাংক",sub:"(raw %, একই শ্রেণির মধ্যে)",rank:rankInfo.classRank,total:rankInfo.classTotal},
+                {label:"স্কুল র‍্যাংক",sub:rankInfo.dept?`(SPI • ${rankInfo.dept})`:"(SPI • normalized)",rank:rankInfo.schoolRank,total:rankInfo.schoolTotal},
+              ].map(({label,sub,rank,total})=>{
                 const medal=rank===1?"🥇":rank===2?"🥈":rank===3?"🥉":"🏅";
                 return(
                   <div key={label} style={{background:"rgba(255,255,255,0.16)",borderRadius:8,padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}>
@@ -3917,12 +4080,23 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
                     <div>
                       <div style={{fontSize:13,fontWeight:800,color:"#fff"}}>{rank}<span style={{fontSize:10,fontWeight:500,color:"rgba(255,255,255,0.7)"}}>/{total}</span></div>
                       <div style={{fontSize:8.5,color:"rgba(255,255,255,0.75)"}}>{label}</div>
+                      <div style={{fontSize:7.5,color:"rgba(255,255,255,0.55)"}}>{sub}</div>
                     </div>
                   </div>
                 );
               })}
             </div>
-          )}
+            {rankInfo.confidence<1&&(
+              <div style={{marginTop:6,fontSize:9.5,color:"rgba(255,255,255,0.85)",background:"rgba(0,0,0,0.15)",borderRadius:6,padding:"4px 8px"}}>
+                ⚠️ সীমিত ডেটা — এই সময়কালে মাত্র {rankInfo.examCount}টি পরীক্ষার ফলাফল আছে, তাই এই র‍্যাংকের নির্ভরযোগ্যতা কম।
+              </div>
+            )}
+            {cls===SSC_CLASS&&!rankInfo.dept&&(
+              <div style={{marginTop:6,fontSize:9.5,color:"rgba(255,255,255,0.85)",background:"rgba(0,0,0,0.15)",borderRadius:6,padding:"4px 8px"}}>
+                ℹ️ এই ছাত্রের বিভাগ (বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা) নির্ধারিত নেই, তাই "অবিভাজিত" গ্রুপে র‍্যাংক করা হয়েছে — Students পেজ থেকে বিভাগ নির্ধারণ করুন।
+              </div>
+            )}
+          </>)}
         </div>
 
         {/* ট্যাব নেভ */}
@@ -4685,7 +4859,7 @@ function ContactLogSection({profile,updateProfile,currentUser,name}){
   </div>);
 }
 
-function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,studentProfiles,setStudentProfiles,currentUser,obsData={}}){
+function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,studentProfiles,setStudentProfiles,studentDepartments={},setStudentDepartments=()=>{},currentUser,obsData={}}){
   const [cls,setCls]=useState("IV");
   const [q,setQ]=useState("");
   const [sel,setSel]=useState(null);
@@ -4718,10 +4892,19 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
     setTimeout(()=>setAddMsg(""),3000);
   };
 
+  // ── SSC (Class X) ছাত্রের বিভাগ নির্ধারণ — School Rank(SPI)-এর cohort ঠিক করতে ব্যবহৃত ──
+  const setDept=(name,dept)=>{
+    setStudentDepartments(prev=>{
+      const updated={...prev};
+      if(dept)updated[name]=dept; else delete updated[name];
+      return updated;
+    });
+  };
+
   return(<div>
     <H2>👨‍🎓 ছাত্র ব্যবস্থাপনা</H2>
 
-    {sel&&<StudentProfile name={sel} cls={cls} results={results} onClose={()=>setSel(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} obsData={obsData}/>}
+    {sel&&<StudentProfile name={sel} cls={cls} results={results} onClose={()=>setSel(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} obsData={obsData}/>}
 
     {/* মুছে ফেলার confirmation */}
     {confirmDel&&(
@@ -4770,13 +4953,23 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
 
       <div style={{overflowX:"auto"}}>
         <table>
-          <thead><tr><th>#</th><th>নাম</th><th>শ্রেণি</th>{isAdmin&&<th>বাদ</th>}</tr></thead>
+          <thead><tr><th>#</th><th>নাম</th><th>শ্রেণি</th>{cls===SSC_CLASS&&<th>বিভাগ</th>}{isAdmin&&<th>বাদ</th>}</tr></thead>
           <tbody>
             {list.map((n,i)=>(
               <tr key={i}>
                 <td style={{color:C.mu,fontSize:11}}>{i+1}</td>
                 <td style={{fontWeight:500,color:C.pu,textDecoration:"underline dotted",cursor:"pointer"}} onClick={()=>setSel(n)}>{n}</td>
                 <td>{badge(C.te,cls)}</td>
+                {cls===SSC_CLASS&&(
+                  <td>
+                    {isAdmin?(
+                      <select value={studentDepartments[n]||""} onChange={e=>setDept(n,e.target.value)} style={{fontSize:11,padding:"3px 6px"}}>
+                        <option value="">— নির্ধারিত নেই —</option>
+                        {SSC_DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}
+                      </select>
+                    ):(studentDepartments[n]?badge(C.am,studentDepartments[n]):<span style={{fontSize:10,color:C.mu}}>—</span>)}
+                  </td>
+                )}
                 {isAdmin&&<td><button onClick={()=>setConfirmDel(n)} style={{padding:"3px 8px",background:C.reL,color:C.re,border:`1px solid ${C.re}40`,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button></td>}
               </tr>
             ))}
@@ -4784,6 +4977,7 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
           </tbody>
         </table>
       </div>
+      {cls===SSC_CLASS&&<div style={{fontSize:10.5,color:C.mu,marginTop:6}}>ℹ️ বিভাগ (বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা) নির্ধারণ করলে "স্কুল র‍্যাংক (SPI)" নিজ বিভাগের মধ্যেই normalize হবে — ভিন্ন বিভাগের ছাত্রের সাথে সরাসরি তুলনা হবে না।</div>}
       {isAdmin&&addMsg&&!showAdd&&<div style={{marginTop:8,fontSize:12,color:addMsg.startsWith("✅")?C.gr:C.re,fontWeight:600,textAlign:"center"}}>{addMsg}</div>}
     </Card>
   </div>);
@@ -4791,6 +4985,7 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
 
 /* ══ TEACHERS ══ */
 function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=false,onChangePwd=null,deadlines=[],dlSubmissions={},examSchedule=[],teacherSubjects={}}){
+  const [rankPeriod,setRankPeriod]=useState("yearly"); // "monthly" | "yearly"
   const allRes=Object.values(results).flat();
   const tr=allRes.filter(r=>r.teacher===name);
   const lp=(lessonPlans._v2||[]).filter(p=>p.teacher===name&&p.status==="approved").length+(lessonPlans[name]||[]).length;
@@ -4798,21 +4993,38 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
   // % ভিত্তিক গড়
   const trP=tr.filter(r=>!r.absent);const pass=trP.filter(r=>r.marks>=(r.passMarks||33)).length;
   const avgPct=trP.length?Math.round(trP.reduce((a,b)=>a+(b.marks/(b.fullMarks||100)*100),0)/trP.length):0;
-  const kpi=calcKPI(name,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects);
+
+  // ── নির্দিষ্ট সময়কালের (মাসিক/বাৎসরিক) জন্য KPI — ফলাফল ও পাঠ পরিকল্পনা period-filtered;
+  // attendance/inspections/syllabus/feedback/training/AIC ডেটা (obsData[teacher]-এর ভেতরে) সব সময়ই
+  // all-time থাকে, কারণ এগুলো সাধারণত কম-ফ্রিকোয়েন্সি এন্ট্রি — এটা মাসিক প্রতিবেদনেও (MonthlyReport)
+  // একই নিয়মে হয়, স্বচ্ছতার জন্য নিচে স্পষ্টভাবে উল্লেখ করা আছে। লক্ষ্য করুন: সব শিক্ষকের জন্য
+  // একই period-filtered ডেটাসেট ব্যবহার করা হয় (কারো জন্য ভিন্ন সময়সীমা না) — যাতে subject/class
+  // কঠিনতা-ফ্যাক্টর normalization সবার জন্য সমান ভিত্তিতে হয়।
+  const periodRes=useMemo(()=>allRes.filter(r=>inRankPeriod(r.examDate||r.savedAt,rankPeriod,new Date())),[allRes,rankPeriod]);
+  const periodLPs=useMemo(()=>({
+    _v2:(lessonPlans._v2||[]).filter(p=>inRankPeriod(p.submittedAt||p.reviewedAt,rankPeriod,new Date())),
+    ...Object.fromEntries(Object.entries(lessonPlans||{}).filter(([k])=>k!=="_v2")),
+  }),[lessonPlans,rankPeriod]);
+  const periodObsData=useMemo(()=>({
+    ...obsData,
+    peerObservations:(obsData.peerObservations||[]).filter(o=>inRankPeriod(o.dateISO,rankPeriod,new Date())),
+  }),[obsData,rankPeriod]);
+
+  const kpi=calcKPI(name,periodRes,periodLPs,periodObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects);
   const gc=kpi.grade==="A+"?C.gr:kpi.grade==="A"?C.te:kpi.grade==="B"?C.am:kpi.grade==="D"?C.co:C.mu;
 
-  // ── সব শিক্ষকের মধ্যে বর্তমান KPI র‍্যাংক (অ্যাডমিন বাদে — তুলনা যথাযথ নয়) ──
+  // ── সব শিক্ষকের মধ্যে বর্তমান KPI র‍্যাংক (অ্যাডমিন বাদে — তুলনা যথাযথ নয়) — dense rank + confidence ──
   const kpiRankInfo=useMemo(()=>{
     if(ADMIN_TEACHERS.includes(name))return null;
     const scored=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t))
-      .map(t=>({name:t,score:calcKPI(t,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects).score}))
+      .map(t=>{const k=calcKPI(t,periodRes,periodLPs,periodObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects);return{name:t,score:k.score,count:k.count};})
       .filter(t=>t.score>0);
-    if(!scored.length||kpi.grade==="—")return null;
-    const sorted=[...scored].sort((a,b)=>b.score-a.score);
-    const rank=sorted.findIndex(t=>t.name===name)+1;
-    if(rank===0)return null;
-    return{rank,total:sorted.length};
-  },[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,name,kpi.grade]);
+    if(!scored.length)return null;
+    const ranked=denseRank(scored,"score");
+    const mine=ranked.find(t=>t.name===name);
+    if(!mine)return null;
+    return{rank:mine._rank,total:mine._total,confidence:Math.min(1,mine.count/TEACHER_RANK_SHRINK_K),count:mine.count};
+  },[periodRes,periodLPs,periodObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,name]);
 
   // প্রধান শিক্ষক ও পরিচালক — এনাদের প্রোফাইলে নম্বর/পরীক্ষা সংক্রান্ত কোনো তথ্য দেখানো হবে না,
   // এবং এনারা পর্যবেক্ষণ করতে পারলেও কখনো "পর্যবেক্ষিত" হবেন না
@@ -4888,17 +5100,27 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
           <button onClick={onClose} style={{border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontWeight:700,fontSize:14}}>✕</button>
         </div>
 
+        {/* মাসিক/বাৎসরিক টগল — নিচের KPI স্কোর ও র‍্যাংক এই সময়কাল অনুযায়ী */}
+        {!isMarksExempt&&(
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            {[["monthly","এই মাস"],["yearly","এই বছর"]].map(([p,l])=>(
+              <button key={p} onClick={()=>setRankPeriod(p)} style={{flex:1,fontSize:11,fontWeight:700,padding:"6px 0",borderRadius:8,cursor:"pointer",
+                border:`1px solid ${C.pu}40`,background:rankPeriod===p?C.pu:"#fff",color:rankPeriod===p?"#fff":C.pu}}>{l}</button>
+            ))}
+          </div>
+        )}
+
         {/* KPI স্কোর — শুধু শিক্ষকতা-সংশ্লিষ্টদের জন্য */}
         {!isMarksExempt&&(<div style={{background:gc+"15",border:`1px solid ${gc}30`,borderRadius:10,padding:"12px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{fontSize:11,color:C.mu}}>KPI স্কোর</div>
+            <div style={{fontSize:11,color:C.mu}}>KPI স্কোর ({rankPeriod==="monthly"?"এই মাস":"এই বছর"})</div>
             <div style={{fontSize:28,fontWeight:700,color:gc}}>{kpi.score}</div>
-            <div style={{fontSize:11,color:C.mu,marginTop:2}}>{kpi.grade==="—"?"ডেটা নেই":"গ্রেড: "+kpi.grade}</div>
+            <div style={{fontSize:11,color:C.mu,marginTop:2}}>{kpi.grade==="—"?"এই সময়কালে ডেটা নেই":"গ্রেড: "+kpi.grade}</div>
           </div>
           <div style={{textAlign:"right"}}>
             {badge(gc,kpi.grade)}
-            <div style={{fontSize:11,color:C.mu,marginTop:6}}>{tr.length}টি ফলাফল এন্ট্রি</div>
-            <div style={{fontSize:11,color:C.mu}}>{lp}টি পাঠ পরিকল্পনা</div>
+            <div style={{fontSize:11,color:C.mu,marginTop:6}}>{kpi.count}টি ফলাফল এন্ট্রি (এই সময়কালে)</div>
+            <div style={{fontSize:10,color:C.mu}}>সর্বকালীন মোট: {tr.length}টি এন্ট্রি, {lp}টি পাঠ পরিকল্পনা</div>
           </div>
         </div>)}
         {isMarksExempt&&(<div style={{background:C.puL,border:`1px solid ${C.pu}30`,borderRadius:10,padding:"12px 14px",marginBottom:12}}>
@@ -4906,16 +5128,22 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
           <div style={{fontSize:11,color:C.mu,marginTop:3}}>এই পদের জন্য নম্বর এন্ট্রি বা KPI প্রযোজ্য নয় — তিনি অন্য শিক্ষকদের ক্লাস পর্যবেক্ষণ করতে পারবেন, কিন্তু নিজে পর্যবেক্ষিত হবেন না।</div>
         </div>)}
 
-        {/* KPI র‍্যাংক — সব শিক্ষকের মধ্যে বর্তমান অবস্থান */}
-        {kpiRankInfo&&(
-          <div style={{background:"linear-gradient(135deg,#5344b515,#7c3aed10)",border:`1px solid ${C.pu}30`,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+        {/* KPI র‍্যাংক — সব শিক্ষকের মধ্যে বর্তমান অবস্থান (নির্বাচিত সময়কালে) */}
+        {kpiRankInfo&&(<>
+          <div style={{background:"linear-gradient(135deg,#5344b515,#7c3aed10)",border:`1px solid ${C.pu}30`,borderRadius:10,padding:"10px 14px",marginBottom:kpiRankInfo.confidence<1?4:12,display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:22}}>{kpiRankInfo.rank===1?"🥇":kpiRankInfo.rank===2?"🥈":kpiRankInfo.rank===3?"🥉":"🏅"}</span>
             <div>
               <div style={{fontSize:15,fontWeight:800,color:C.pu}}>{kpiRankInfo.rank}<span style={{fontSize:11,fontWeight:500,color:C.mu}}>/{kpiRankInfo.total}</span></div>
-              <div style={{fontSize:10.5,color:C.mu}}>সব শিক্ষকের মধ্যে বর্তমান KPI র‍্যাংক</div>
+              <div style={{fontSize:10.5,color:C.mu}}>সব শিক্ষকের মধ্যে KPI র‍্যাংক ({rankPeriod==="monthly"?"এই মাস":"এই বছর"}) • সমান স্কোর হলে যুগ্ম র‍্যাংক</div>
             </div>
           </div>
-        )}
+          {kpiRankInfo.confidence<1&&(
+            <div style={{marginBottom:12,fontSize:10.5,color:C.co,background:C.coL,borderRadius:6,padding:"5px 9px"}}>
+              ⚠️ সীমিত ডেটা — এই সময়কালে মাত্র {kpiRankInfo.count}টি ফলাফল-এন্ট্রি আছে, তাই এই র‍্যাংকের নির্ভরযোগ্যতা কম।
+            </div>
+          )}
+        </>)}
+
 
         {/* পর্যবেক্ষণ সারসংক্ষেপ */}
         {(attPct!==null||sylPct!==null||avgFb!==null)&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
@@ -5755,7 +5983,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
 }
 
 /* ══ RESULTS ══ */
-function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,studentProfiles={},setStudentProfiles=()=>{},obsData={}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,studentProfiles={},setStudentProfiles=()=>{},studentDepartments={},obsData={}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const [tab,setTab]=useState("summary");const [fCls,setFCls]=useState("সব");const [fSub,setFSub]=useState("সব");const [fEx,setFEx]=useState("সব");const [selStudent,setSelStudent]=useState("");const [selProfile,setSelProfile]=useState(null);
   const [editRec,setEditRec]=useState(null);// {cls,idx,rec} editing
   const [editMark,setEditMark]=useState("");
@@ -6059,8 +6287,9 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
       {/* তুলনামূলক বিশ্লেষণ টেবিল */}
       <Card>
         <H3>বিস্তারিত তুলনামূলক বিশ্লেষণ</H3>
+        <div style={{fontSize:10.5,color:C.mu,marginBottom:8}}>ℹ️ এই টেবিল প্রতিটি শ্রেণির raw গড়% পাশাপাশি দেখায় — এটা কোনো "কোন শ্রেণি ভালো/খারাপ" এমন প্রতিযোগিতামূলক র‍্যাংক নয়, কারণ ভিন্ন শ্রেণির পরীক্ষার কঠিনতা ভিন্ন। শুধু তথ্যগত পাশাপাশি-তুলনা হিসেবে দেখুন।</div>
         <div style={{overflowX:"auto"}}><table>
-          <thead><tr><th>শ্রেণি</th><th>গড়</th><th>সর্বোচ্চ</th><th>সর্বনিম্ন</th><th>পাস%</th><th>অবস্থান</th></tr></thead>
+          <thead><tr><th>শ্রেণি</th><th>গড়</th><th>সর্বোচ্চ</th><th>সর্বনিম্ন</th><th>পাস%</th><th>গড়-ক্রম</th></tr></thead>
           <tbody>
             {(()=>{
               const clsStats=Object.keys(STUDENTS).map(cls=>{
@@ -6079,7 +6308,6 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
                 const rank=sorted.findIndex(s=>s.cls===cls)+1;
                 const[,gc]=getGrade(cavg);
                 const rankColor=rank===1?C.gr:rank===2?C.te:rank===3?C.am:C.mu;
-                const medal=rank===1?"🥇":rank===2?"🥈":rank===3?"🥉":`#${rank}`;
                 return(<tr key={cls}>
                   <td>{badge(C.pu,`শ্রেণি ${cls}`)}</td>
                   <td style={{fontWeight:700,color:gc}}>{cavg}%</td>
@@ -6093,7 +6321,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
                       <span style={{fontSize:11,fontWeight:700,minWidth:28}}>{cpct}%</span>
                     </div>
                   </td>
-                  <td style={{fontWeight:700,color:rankColor,fontSize:14}}>{medal}</td>
+                  <td style={{fontWeight:700,color:rankColor,fontSize:13}}>#{rank}</td>
                 </tr>);
               });
             })()}
@@ -6530,7 +6758,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
       </Card>
     </div>)}
     {tab==="list"&&(<div>
-      {selProfile&&<StudentProfile name={selProfile.name} cls={selProfile.cls} results={results} onClose={()=>setSelProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} obsData={obsData}/>}
+      {selProfile&&<StudentProfile name={selProfile.name} cls={selProfile.cls} results={results} onClose={()=>setSelProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} obsData={obsData}/>}
 
       {/* ── বাল্ক এডিট মডাল (পরীক্ষাভিত্তিক সব ছাত্রের নম্বর একসাথে) ── */}
       {examEditGroup&&(()=>{
@@ -9373,12 +9601,15 @@ function stdDevPct(arr){
   const variance=arr.reduce((a,b)=>a+Math.pow(b-avg,2),0)/arr.length;
   return Math.round(Math.sqrt(variance));
 }
-function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSubmissions, examSchedule, teacherSubjects, STUDENTS, year, month, uptoDate){
+const TEACHER_RANK_SHRINK_K=5; // এই সংখ্যক ফলাফল-এন্ট্রি থাকলে শিক্ষকের KPI র‍্যাংকে "পূর্ণ আস্থা" ধরা হবে
+
+function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSubmissions, examSchedule, teacherSubjects, STUDENTS, year, month, uptoDate, period="monthly"){
   const inRange=(dateStr)=>{
     if(!dateStr)return false;
     const d=new Date(dateStr);
     if(isNaN(d.getTime()))return false;
-    if(d.getFullYear()!==year||d.getMonth()!==month)return false;
+    if(d.getFullYear()!==year)return false;
+    if(period==="monthly"&&d.getMonth()!==month)return false; // yearly হলে মাস-নির্বিশেষে পুরো বছর
     if(uptoDate&&d>uptoDate)return false;
     return true;
   };
@@ -9441,9 +9672,11 @@ function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSub
     ...Object.fromEntries(Object.entries(lessonPlans||{}).filter(([k])=>k!=="_v2")),
   };
   const monthObsData={...obsData,peerObservations:(obsData.peerObservations||[]).filter(o=>inRange(o.dateISO))};
-  const kpiRanking=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t))
+  const kpiScored=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t))
     .map(t=>({teacher:t,...calcKPI(t,monthRes,monthLPs,monthObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}))
-    .sort((a,b)=>b.score-a.score);
+    .filter(k=>k.score>0);
+  // ── dense/joint rank + confidence (কম ডেটা থাকলে র‍্যাংকের নির্ভরযোগ্যতা কম) ──
+  const kpiRanking=denseRank(kpiScored,"score").map(k=>({...k,rank:k._rank,total:k._total,confidence:Math.min(1,k.count/TEACHER_RANK_SHRINK_K)}));
 
   // ── উপস্থিতি (প্রতি শিক্ষক) ──
   const attendanceReport=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)).map(t=>{
@@ -9465,7 +9698,9 @@ function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSub
       const targetTeachers=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;
       if(!targetTeachers.includes(t))return false;
       const due=new Date(dl.dueDate);
-      return due.getFullYear()===year&&due.getMonth()===month&&(!uptoDate||due<=uptoDate);
+      if(due.getFullYear()!==year)return false;
+      if(period==="monthly"&&due.getMonth()!==month)return false;
+      return !uptoDate||due<=uptoDate;
     });
     const missed=rangeDeadlines.filter(dl=>((dlSubmissions[dl.id]||{})[t])!=="done").length;
     return{teacher:t,submitted:mine.length,approved,returned,dlTotal:rangeDeadlines.length,dlMissed:missed};
@@ -9478,7 +9713,7 @@ function computeMonthlyReportData(allRes, lessonPlans, obsData, deadlines, dlSub
   const peerObsAvg=peerObsInRange.length?Math.round(peerObsInRange.reduce((a,o)=>a+o.totalScore,0)/peerObsInRange.length):null;
 
   return{
-    period:{year,month},
+    period:{year,month,type:period},
     validCount:validRes.length,
     overallAvg,overallPass,aPlusCount,fCount,
     classBreakdown,subjectBreakdown,crossMatrix,subjectsUsed,
@@ -9511,6 +9746,8 @@ function MonthlyReport({results,lessonPlans,obsData,deadlines,dlSubmissions,exam
   const allRes=useMemo(()=>Object.values(results||{}).flat(),[results]);
   const now=new Date();
 
+  const [reportPeriod,setReportPeriod]=useState("monthly"); // "monthly" | "yearly"
+
   // ── মাস নির্বাচন: ডিফল্ট চলতি মাস (আজ পর্যন্ত), বা গত ১১ মাসের যেকোনো একটি (পূর্ণ মাস) ──
   const monthOptions=useMemo(()=>{
     const opts=[];
@@ -9520,17 +9757,27 @@ function MonthlyReport({results,lessonPlans,obsData,deadlines,dlSubmissions,exam
     }
     return opts;
   },[]);
+  // ── বছর নির্বাচন: চলতি বছর + গত ২ বছর ──
+  const yearOptions=useMemo(()=>[now.getFullYear(),now.getFullYear()-1,now.getFullYear()-2],[]);
+  const [selYearIdx,setSelYearIdx]=useState(0);
+  const selYear=yearOptions[selYearIdx];
+  const isCurrentYear=selYearIdx===0;
+
   const [selIdx,setSelIdx]=useState(0);
   const sel=monthOptions[selIdx];
   const isCurrentMonth=selIdx===0;
-  const uptoDate=isCurrentMonth?now:new Date(sel.year,sel.month+1,0,23,59,59);
-  const periodLabel=isCurrentMonth
-    ?`১ ${MONTH_NAMES_BN[sel.month]} – ${now.toLocaleDateString("bn-BD")}`
-    :`১ – ${new Date(sel.year,sel.month+1,0).getDate()} ${MONTH_NAMES_BN[sel.month]}, ${sel.year}`;
+  const uptoDate=reportPeriod==="monthly"
+    ?(isCurrentMonth?now:new Date(sel.year,sel.month+1,0,23,59,59))
+    :(isCurrentYear?now:new Date(selYear,11,31,23,59,59));
+  const periodLabel=reportPeriod==="monthly"
+    ?(isCurrentMonth?`১ ${MONTH_NAMES_BN[sel.month]} – ${now.toLocaleDateString("bn-BD")}`:`১ – ${new Date(sel.year,sel.month+1,0).getDate()} ${MONTH_NAMES_BN[sel.month]}, ${sel.year}`)
+    :(isCurrentYear?`১ জানুয়ারি – ${now.toLocaleDateString("bn-BD")}, ${selYear}`:`পুরো শিক্ষাবর্ষ ${selYear}`);
 
   const data=useMemo(()=>computeMonthlyReportData(
-    allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,sel.year,sel.month,uptoDate
-  ),[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,sel.year,sel.month]);
+    allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,
+    reportPeriod==="monthly"?sel.year:selYear, reportPeriod==="monthly"?sel.month:0, uptoDate, reportPeriod
+  ),[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects,STUDENTS,sel.year,sel.month,selYear,reportPeriod]);
+
 
   // ── ট্রেন্ড: এই মাস + আগের ২ পূর্ণ মাস ──
   const trendMonths=useMemo(()=>{
@@ -9591,9 +9838,21 @@ function MonthlyReport({results,lessonPlans,obsData,deadlines,dlSubmissions,exam
     <div className="mr-toolbar" style={{maxWidth:820,margin:"0 auto",padding:"16px 16px 0",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <button onClick={onClose} style={{padding:"9px 16px",borderRadius:6,border:"1px solid #999",background:"#fff",cursor:"pointer",fontSize:13}}>← ফিরে যান</button>
       <div className="mr-picker" style={{display:"flex",gap:8,alignItems:"center"}}>
-        <select value={selIdx} onChange={e=>setSelIdx(Number(e.target.value))} style={{padding:"8px 10px",borderRadius:6,fontSize:13}}>
-          {monthOptions.map((m,i)=><option key={i} value={i}>{m.label}{i===0?" (চলতি — আজ পর্যন্ত)":""}</option>)}
-        </select>
+        <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:"1px solid #999"}}>
+          {[["monthly","মাসিক"],["yearly","বাৎসরিক"]].map(([p,l])=>(
+            <button key={p} onClick={()=>setReportPeriod(p)} style={{padding:"8px 12px",fontSize:12.5,fontWeight:700,border:"none",cursor:"pointer",
+              background:reportPeriod===p?"#7a2e2e":"#fff",color:reportPeriod===p?"#fff":"#333"}}>{l}</button>
+          ))}
+        </div>
+        {reportPeriod==="monthly"?(
+          <select value={selIdx} onChange={e=>setSelIdx(Number(e.target.value))} style={{padding:"8px 10px",borderRadius:6,fontSize:13}}>
+            {monthOptions.map((m,i)=><option key={i} value={i}>{m.label}{i===0?" (চলতি — আজ পর্যন্ত)":""}</option>)}
+          </select>
+        ):(
+          <select value={selYearIdx} onChange={e=>setSelYearIdx(Number(e.target.value))} style={{padding:"8px 10px",borderRadius:6,fontSize:13}}>
+            {yearOptions.map((y,i)=><option key={i} value={i}>{y}{i===0?" (চলতি — আজ পর্যন্ত)":""}</option>)}
+          </select>
+        )}
         <button onClick={()=>window.print()} style={{padding:"11px 20px",borderRadius:6,border:"none",background:"#7a2e2e",color:"#fff",fontWeight:600,fontSize:14,cursor:"pointer",boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>📄 PDF ডাউনলোড করুন</button>
       </div>
     </div>
@@ -9634,15 +9893,17 @@ function MonthlyReport({results,lessonPlans,obsData,deadlines,dlSubmissions,exam
 
       {/* ২ KPI */}
       <h2 style={{fontSize:14.5,fontWeight:700,color:"#fff",background:"#2a2a2a",padding:"6px 12px",margin:"26px 0 10px"}}>২। শিক্ষক KPI র‍্যাংকিং</h2>
+      <div style={{fontSize:11,color:"#5a5a5a",margin:"0 0 8px"}}>ℹ️ সমান স্কোর হলে একই ক্রম (যুগ্ম র‍্যাংক) দেখানো হয়। "সীমিত ডেটা" চিহ্নিত এন্ট্রির নির্ভরযোগ্যতা কম, কারণ এই সময়কালে পর্যাপ্ত ফলাফল-এন্ট্রি নেই।</div>
       <table>
-        <thead><tr><th style={{width:28}}>ক্রম</th><th>শিক্ষকের নাম</th><th style={{textAlign:"center"}}>স্কোর</th><th style={{textAlign:"center"}}>গ্রেড</th></tr></thead>
+        <thead><tr><th style={{width:28}}>ক্রম</th><th>শিক্ষকের নাম</th><th style={{textAlign:"center"}}>স্কোর</th><th style={{textAlign:"center"}}>গ্রেড</th><th style={{textAlign:"center"}}>নির্ভরযোগ্যতা</th></tr></thead>
         <tbody>
-          {data.kpiRanking.map((k,i)=>(
+          {data.kpiRanking.map(k=>(
             <tr key={k.teacher}>
-              <td style={{textAlign:"center",fontWeight:i===0?700:400,color:i===0?"#8a6d00":"inherit"}}>{i+1}</td>
+              <td style={{textAlign:"center",fontWeight:k.rank===1?700:400,color:k.rank===1?"#8a6d00":"inherit"}}>#{k.rank}</td>
               <td>{k.teacher}</td>
-              <td style={{textAlign:"center",fontWeight:i===0?700:400}}>{k.score}</td>
+              <td style={{textAlign:"center",fontWeight:k.rank===1?700:400}}>{k.score}</td>
               <td style={{textAlign:"center"}}>{k.grade}</td>
+              <td style={{textAlign:"center",fontSize:10.5,color:k.confidence<1?"#a35a00":"#1e6b3a"}}>{k.confidence<1?`⚠️ সীমিত (${k.count})`:"পূর্ণ"}</td>
             </tr>
           ))}
         </tbody>
@@ -10692,6 +10953,7 @@ const PAGES=[
    বর্তমান দশম শ্রেণির (X) শিক্ষার্থীরাই ২০২৭ সালের এসএসসি পরীক্ষার্থী
    ══════════════════════════════════════════════════════════════════════ */
 const SSC_CLASS="X";
+const SSC_DEPARTMENTS=["বিজ্ঞান","মানবিক","ব্যবসায় শিক্ষা"]; // Class X বিভাগ — School Rank(SPI)-এর জন্য আলাদা cohort
 
 const STUDY_TIPS={
   "গণিত":"প্রতিদিন অন্তত ১৫-২০টি অংক চর্চা করুন এবং ভুল হওয়া অংকগুলো আলাদা খাতায় টুকে রেখে বারবার পর্যালোচনা করুন।",
@@ -11255,6 +11517,7 @@ function App(){
   const [customTeachers,setCustomTeachers]=useState([]);
   const [removedTeachers,setRemovedTeachers]=useState([]); // ডিফল্ট তালিকা থেকে মুছে ফেলা শিক্ষকদের নাম
   const [studentProfiles,setStudentProfiles]=useState({});
+  const [studentDepartments,setStudentDepartments]=useState({}); // {ছাত্রনাম: "বিজ্ঞান"|"মানবিক"|"ব্যবসায় শিক্ষা"} — শুধু Class X, School Rank(SPI)-এর cohort নির্ধারণে ব্যবহৃত
   const [lastExportTs,setLastExportTs]=useState(null);
   const [lastCarryDate,setLastCarryDate]=useState(null);
   const [dailyRoutine,setDailyRoutine]=useState(DEFAULT_DAILY_ROUTINE);
@@ -11300,6 +11563,7 @@ function App(){
         if(d.removedTeachers)setRemovedTeachers(d.removedTeachers);
         TEACHERS=[...DEFAULT_TEACHERS.filter(t=>!(d.removedTeachers||[]).includes(t)),...(d.customTeachers||[])];
         if(d.studentProfiles)setStudentProfiles(d.studentProfiles);
+        if(d.studentDepartments)setStudentDepartments(d.studentDepartments);
         if(d.examSchedule)setExamSchedule(d.examSchedule);
         if(d.dailyRoutine)setDailyRoutine(d.dailyRoutine);
         if(d.meetingAgenda)setMeetingAgenda(d.meetingAgenda);
@@ -11334,6 +11598,7 @@ function App(){
   const [saveError,setSaveError]=useState(false);
   const [importMsg,setImportMsg]=useState("");
   const [showExportMenu,setShowExportMenu]=useState(false);
+  const [showMoreSheet,setShowMoreSheet]=useState(false);
   const [showSearch,setShowSearch]=useState(false);
   const [searchQ,setSearchQ]=useState("");
   const [searchProfile,setSearchProfile]=useState(null);
@@ -11417,6 +11682,7 @@ function App(){
           const spV2=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2));
           else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+          if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
           HAISDB.setSync("hais_data_v3",data);
           window.__fbPreloadData=null; // মেমোরি মুক্ত করো
@@ -11485,6 +11751,7 @@ function App(){
           const spV2b=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2b)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2b));
           else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+          if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
           HAISDB.setSync("hais_data_v3",data);
           setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -11546,6 +11813,7 @@ function App(){
       const spV2c=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
       if(spV2c)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2c));
       else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
+      if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
       HAISDB.setSync("hais_data_v3",data);
       setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -11560,7 +11828,7 @@ function App(){
     if(!dbReady||!fbLoaded)return;
     // Firebase থেকে ডেটা apply শেষ হওয়ার আগে auto-save চলবে না (race condition fix)
     if(!fbApplyDoneRef.current)return;
-    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,examSchedule,dailyRoutine,meetingAgenda,specialTasks,routineSubtasks,lastCarryDate,weeklyTargets,targetFulfillments,selfReports};
+    const current={results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,studentDepartments,examSchedule,dailyRoutine,meetingAgenda,specialTasks,routineSubtasks,lastCarryDate,weeklyTargets,targetFulfillments,selfReports};
     // remote থেকে আসা আপডেট — নিজেরটাই আবার Firebase-এ পাঠানোর দরকার নেই
     if(skipNextFbPushRef.current){
       prevValuesRef.current=current;
@@ -11586,7 +11854,7 @@ function App(){
     const prev=prevValuesRef.current;
     // results বাদ দাও — এটা ExamEntry থেকে granular write হয়, এখানে পাঠালে race condition হবে
     // granular write হয় এমন field গুলো bulk auto-save থেকে বাদ — race condition প্রতিরোধ
-    const GRANULAR_FIELDS=["results","teacherSubjects","deadlines","dlSubmissions","obsData","studentProfiles","weeklyTargets","targetFulfillments","selfReports"];
+    const GRANULAR_FIELDS=["results","teacherSubjects","deadlines","dlSubmissions","obsData","studentProfiles","studentDepartments","weeklyTargets","targetFulfillments","selfReports"];
     const changedKeys=!prev
       ?Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k))
       :Object.keys(current).filter(k=>!GRANULAR_FIELDS.includes(k)&&current[k]!==prev[k]);
@@ -11602,10 +11870,11 @@ function App(){
       else{setSaveError(true);setLastSaved(new Date());}
     },1500);
     return()=>clearTimeout(t);
-  },[results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,weeklyTargets,targetFulfillments,selfReports,dbReady,fbLoaded]);
+  },[results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,studentDepartments,weeklyTargets,targetFulfillments,selfReports,dbReady,fbLoaded]);
 
   const handlePageChange=(newPage)=>{
     setPage(newPage);
+    setShowMoreSheet(false);
     if(currentUser!==ADMIN_TEACHER)return;
     const autoIds=COORD_APP_TASK_MAP[newPage]||[];
     if(!autoIds.length)return;
@@ -11641,7 +11910,7 @@ function App(){
 
   const exportJSON=()=>{
     const a=document.createElement("a");
-    a.href="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify({results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,exportedAt:new Date().toISOString()},null,2));
+    a.href="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify({results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,studentDepartments,exportedAt:new Date().toISOString()},null,2));
     a.download=`HAIS_backup_${new Date().toISOString().slice(0,10)}.json`;a.click();
     const nowISO=new Date().toISOString();
     HAISDB.setSync("hais_last_export_v1",nowISO);
@@ -11673,6 +11942,7 @@ function App(){
         if(d.removedTeachers)setRemovedTeachers(d.removedTeachers);
         TEACHERS=[...DEFAULT_TEACHERS.filter(t=>!(d.removedTeachers||[]).includes(t)),...(d.customTeachers||[])];
         if(d.studentProfiles)setStudentProfiles(d.studentProfiles);
+        if(d.studentDepartments)setStudentDepartments(d.studentDepartments);
         // lpRole import করা হচ্ছে না — এটি session-নির্ভর ব্যক্তিগত তথ্য
         setImportMsg("✓ ডেটা সফলভাবে পুনরুদ্ধার করা হয়েছে!");
         setTimeout(()=>setImportMsg(""),3500);
@@ -11919,6 +12189,16 @@ function App(){
     <style>{`@keyframes loadbar{0%{width:0%}50%{width:60%}80%{width:85%}100%{width:95%}}`}</style>
   </div>);
 
+  const visiblePages=PAGES.filter(p=>(p.id==="coord"||p.id==="aic_obs")?currentUser===ADMIN_TEACHER:(!p.adminOnly||ADMIN_TEACHERS.includes(currentUser)));
+  const NAV_GROUP_BOUNDARIES={students:"প্রধান",ssctarget:"একাডেমিক",kpi:"প্রশাসন"};
+  const BOTTOM_TAB_IDS=["dashboard","students","exam","results"];
+  const bottomTabs=BOTTOM_TAB_IDS.map(id=>visiblePages.find(p=>p.id===id)).filter(Boolean);
+  const morePages=visiblePages.filter(p=>!BOTTOM_TAB_IDS.includes(p.id));
+  const splitNavLabel=(label)=>{
+    const parts=label.split(" ");
+    return{icon:parts[0],text:parts.slice(1).join(" ")};
+  };
+
   return(<div style={{minHeight:"100vh",background:C.bg,fontFamily:"sans-serif",color:C.tx}}>
     {showChangePwd&&<ChangePasswordModal currentUser={currentUser} onClose={()=>setShowChangePwd(false)}/>}
     {showUserProfile&&<TeacherProfile name={currentUser} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setShowUserProfile(false)} isSelf={true} onChangePwd={()=>setShowChangePwd(true)} teacherSubjects={teacherSubjects}/>}
@@ -11951,49 +12231,67 @@ function App(){
 
     {/* সার্চ থেকে প্রোফাইল পপআপ */}
     {searchProfile&&searchType==="student"&&(
-      <StudentProfile name={searchProfile.name} cls={searchProfile.cls} results={results} onClose={()=>setSearchProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} obsData={obsData}/>
+      <StudentProfile name={searchProfile.name} cls={searchProfile.cls} results={results} onClose={()=>setSearchProfile(null)} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} obsData={obsData}/>
     )}
     {searchProfile&&searchType==="teacher"&&(
       <TeacherProfile name={searchProfile.name} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setSearchProfile(null)} teacherSubjects={teacherSubjects}/>
     )}
 
-    <div style={{background:C.pu,color:"#fff",padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 10px #5344b540"}}>
-      <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.1</div></div>
-      <div style={{display:"flex",gap:6,alignItems:"center"}}>
-        <div onClick={()=>setShowUserProfile(true)} style={{textAlign:"right",marginRight:4,cursor:"pointer",padding:"4px 8px",borderRadius:8,border:"1px solid #ffffff30",background:"rgba(255,255,255,0.08)",transition:"background 0.15s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
-          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
-          <div style={{fontSize:10,opacity:0.75}}>{adminTitle(currentUser)||"👤 শিক্ষক"}</div>
-          <div style={{fontSize:11,fontWeight:700,opacity:0.97}}>{currentUser} <span style={{fontSize:9,opacity:0.7}}>▼</span></div>
+    <div className="app-shell">
+        {/* ── ডেস্কটপ সাইডবার ── */}
+        <div className="app-sidebar">
+          <div style={{padding:"18px 16px 14px",borderBottom:`1px solid ${C.bd}`}}>
+            <div style={{fontWeight:800,fontSize:16,color:C.pu}}>🏫 HAIS</div>
+            <div style={{fontSize:10.5,color:C.mu,marginTop:2}}>Heritage Public School • v7.1</div>
+          </div>
+          <div style={{flex:1,paddingBottom:12}}>
+            {visiblePages.map(p=>(<React.Fragment key={p.id}>
+              {NAV_GROUP_BOUNDARIES[p.id]&&<div className="sidebar-group-label">{NAV_GROUP_BOUNDARIES[p.id]}</div>}
+              <div className={"sidebar-link"+(page===p.id?" active":"")} onClick={()=>handlePageChange(p.id)}>{p.label}</div>
+            </React.Fragment>))}
+          </div>
         </div>
-        <button onClick={()=>setShowSearch(true)} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:13}}>🔍</button>
-        <div style={{position:"relative"}}>
-          <button onClick={()=>setShowExportMenu(p=>!p)} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>💾 ডেটা ▾</button>
-          {showExportMenu&&(<div style={{position:"absolute",right:0,top:34,background:"#fff",borderRadius:10,boxShadow:"0 4px 16px rgba(0,0,0,0.15)",padding:6,minWidth:210,zIndex:200}}>
-            <div style={{padding:"6px 12px",fontSize:10,color:saveError?C.re:lastSaved?C.gr:C.mu,fontWeight:600}}>
-              {saveError?"⚠ Firebase সংরক্ষণ ব্যর্থ — ডিভাইসে আছে, internet চেক করুন":lastSaved?`✓ Firebase-এ সংরক্ষিত — ${lastSaved.toLocaleTimeString("bn-BD")}`:fbLoaded?"⏳ সংরক্ষণ হচ্ছে...":"🔄 Firebase সংযোগ হচ্ছে..."}
+
+        <div className="app-main">
+          <div style={{background:C.pu,color:"#fff",padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 10px #5344b540"}}>
+            <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.1</div></div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <div onClick={()=>setShowUserProfile(true)} style={{textAlign:"right",marginRight:4,cursor:"pointer",padding:"4px 8px",borderRadius:8,border:"1px solid #ffffff30",background:"rgba(255,255,255,0.08)",transition:"background 0.15s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
+                <div style={{fontSize:10,opacity:0.75}}>{adminTitle(currentUser)||"👤 শিক্ষক"}</div>
+                <div style={{fontSize:11,fontWeight:700,opacity:0.97}}>{currentUser} <span style={{fontSize:9,opacity:0.7}}>▼</span></div>
+              </div>
+              <button onClick={()=>setShowSearch(true)} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:13}}>🔍</button>
+              <div style={{position:"relative"}}>
+                <button onClick={()=>setShowExportMenu(p=>!p)} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>💾 ডেটা ▾</button>
+                {showExportMenu&&(<div style={{position:"absolute",right:0,top:34,background:"#fff",borderRadius:10,boxShadow:"0 4px 16px rgba(0,0,0,0.15)",padding:6,minWidth:210,zIndex:200}}>
+                  <div style={{padding:"6px 12px",fontSize:10,color:saveError?C.re:lastSaved?C.gr:C.mu,fontWeight:600}}>
+                    {saveError?"⚠ Firebase সংরক্ষণ ব্যর্থ — ডিভাইসে আছে, internet চেক করুন":lastSaved?`✓ Firebase-এ সংরক্ষিত — ${lastSaved.toLocaleTimeString("bn-BD")}`:fbLoaded?"⏳ সংরক্ষণ হচ্ছে...":"🔄 Firebase সংযোগ হচ্ছে..."}
+                  </div>
+                  <div style={{height:1,background:C.bd,margin:"4px 0"}}/>
+                  <button onClick={exportJSON} style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>⬇ ব্যাকআপ ফাইল ডাউনলোড</button>
+                  <label htmlFor="haisImportInput" style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>📥 ব্যাকআপ থেকে পুনরুদ্ধার</label>
+                  <input id="haisImportInput" type="file" accept="application/json,.json" style={{display:"none"}} onChange={importJSON}/>
+                  <button onClick={printReport} style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>🖨️ প্রিন্ট / PDF রিপোর্ট</button>
+                  {importMsg&&<div style={{padding:"6px 12px",fontSize:11,color:importMsg.startsWith("✓")?C.gr:C.re,fontWeight:600}}>{importMsg}</div>}
+                </div>)}
+              </div>
+              <button onClick={()=>setShowChangePwd(true)} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="পাসওয়ার্ড পরিবর্তন">🔑</button>
+              <button onClick={handleLogout} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="লগআউট">🚪</button>
             </div>
-            <div style={{height:1,background:C.bd,margin:"4px 0"}}/>
-            <button onClick={exportJSON} style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>⬇ ব্যাকআপ ফাইল ডাউনলোড</button>
-            <label htmlFor="haisImportInput" style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>📥 ব্যাকআপ থেকে পুনরুদ্ধার</label>
-            <input id="haisImportInput" type="file" accept="application/json,.json" style={{display:"none"}} onChange={importJSON}/>
-            <button onClick={printReport} style={{display:"block",width:"100%",padding:"8px 12px",border:"none",background:"transparent",textAlign:"left",cursor:"pointer",fontSize:13,color:C.tx,borderRadius:6}}>🖨️ প্রিন্ট / PDF রিপোর্ট</button>
-            {importMsg&&<div style={{padding:"6px 12px",fontSize:11,color:importMsg.startsWith("✓")?C.gr:C.re,fontWeight:600}}>{importMsg}</div>}
-          </div>)}
-        </div>
-        <button onClick={()=>setShowChangePwd(true)} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="পাসওয়ার্ড পরিবর্তন">🔑</button>
-        <button onClick={handleLogout} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="লগআউট">🚪</button>
-      </div>
-    </div>
-    <div style={{display:"flex",gap:4,overflowX:"auto",background:"#fff",padding:"8px 10px",borderBottom:`1px solid ${C.bd}`,WebkitOverflowScrolling:"touch"}}>
-      {PAGES.filter(p=>(p.id==="coord"||p.id==="aic_obs")?currentUser===ADMIN_TEACHER:(!p.adminOnly||ADMIN_TEACHERS.includes(currentUser))).map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
-    </div>
-    <div style={{padding:"12px",maxWidth:700,margin:"0 auto"}}>
-      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={ADMIN_TEACHERS.includes(currentUser)} teacherSubjects={teacherSubjects} dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate}/>}
-      {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} currentUser={currentUser} obsData={obsData}/>}
+          </div>
+          <div className="app-mobile-topnav">
+            {visiblePages.map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
+          </div>
+          <div className="app-content">
+            <div className="app-content-inner app-page-fade" key={page}>
+
+      {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={ADMIN_TEACHERS.includes(currentUser)} teacherSubjects={teacherSubjects} dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate}/>}
+      {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} setStudentDepartments={setStudentDepartments} currentUser={currentUser} obsData={obsData}/>}
       {page==="teachers" &&(ADMIN_TEACHERS.includes(currentUser)?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} setObsData={setObsData} currentUser={currentUser} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} removedTeachers={removedTeachers} setRemovedTeachers={setRemovedTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
-      {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} obsData={obsData}/>}
+      {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} obsData={obsData}/>}
       {page==="ssctarget" &&<SSCTarget results={results} STUDENTS={STUDENTS} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} weeklyTargets={weeklyTargets} setWeeklyTargets={setWeeklyTargets} targetFulfillments={targetFulfillments} setTargetFulfillments={setTargetFulfillments} selfReports={selfReports} setSelfReports={setSelfReports} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
       {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
       {page==="observe"  &&(ADMIN_TEACHERS.includes(currentUser)?<TeacherObservation obsData={obsData} setObsData={setObsData} STUDENTS={STUDENTS}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
@@ -12006,9 +12304,42 @@ function App(){
       {page==="coord"       &&(currentUser===ADMIN_TEACHER?<CoordinatorDashboard taskStatus={coordTaskStatus} onToggle={handleCoordToggle} onPageJump={handlePageChange}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
       {page==="aic_obs"     &&(currentUser===ADMIN_TEACHER?<AICObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র একাডেমিক ইনচার্জের জন্য</div>)}
       {page==="monthly_report" &&(ADMIN_TEACHERS.includes(currentUser)?<MonthlyReport results={results} lessonPlans={lessonPlans} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} examSchedule={examSchedule} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} currentUser={currentUser} onClose={()=>handlePageChange("dashboard")}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
+            </div>
+          </div>
+
+          {/* ── মোবাইল বটম ট্যাব বার ── */}
+          <div className="app-bottom-tabs">
+            {bottomTabs.map(p=>{
+              const{icon,text}=splitNavLabel(p.label);
+              return(
+                <button key={p.id} className={"bottom-tab"+(page===p.id?" active":"")} onClick={()=>handlePageChange(p.id)}>
+                  <span className="bt-icon">{icon}</span><span>{text}</span>
+                </button>
+              );
+            })}
+            <button className={"bottom-tab"+(showMoreSheet?" active":"")} onClick={()=>setShowMoreSheet(true)}>
+              <span className="bt-icon">☰</span><span>আরও</span>
+            </button>
+          </div>
+        </div>
     </div>
+
+    {/* ── মোবাইল "আরও" শিট — বাকি সব মেনু আইটেম ── */}
+    {showMoreSheet&&(<>
+      <div className="app-more-sheet-backdrop" onClick={()=>setShowMoreSheet(false)}/>
+      <div className="app-more-sheet">
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.bd}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.pu}}>☰ সব মেনু</div>
+          <button onClick={()=>setShowMoreSheet(false)} style={{border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"5px 10px",fontWeight:700,cursor:"pointer"}}>✕ বন্ধ</button>
+        </div>
+        {morePages.map(p=>(
+          <div key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"13px 18px",fontSize:13.5,color:page===p.id?C.pu:C.tx,fontWeight:page===p.id?700:400,background:page===p.id?C.puL:"transparent",cursor:"pointer",borderBottom:`1px solid ${C.bd}`}}>{p.label}</div>
+        ))}
+      </div>
+    </>)}
   </div>);
 }
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
