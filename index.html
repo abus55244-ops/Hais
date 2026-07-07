@@ -128,15 +128,12 @@ button:active{transform:scale(0.97)}
 .app-content{padding:12px;padding-bottom:24px;overscroll-behavior-y:contain}
 .app-content-inner{max-width:840px;margin:0 auto}
 .app-page-fade{animation:fadeInUp 0.22s var(--ease) both}
-.app-mobile-topnav{display:flex;gap:4px;overflow-x:auto;background:#fff;padding:8px 10px;border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:none}
-.app-mobile-topnav::-webkit-scrollbar{display:none}
 .app-bottom-tabs{display:none}
 .app-more-sheet-backdrop{position:fixed;inset:0;background:rgba(20,10,50,0.42);z-index:998;animation:sheetBackdropIn .18s ease both}
 .app-more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;z-index:999;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(20,10,60,0.25);max-height:75vh;overflow-y:auto;animation:slideUpSheet .26s var(--ease) both;padding-bottom:env(safe-area-inset-bottom)}
 
 @media(min-width:1024px){
   .app-sidebar{display:flex;flex-direction:column;width:var(--sidebar-w);flex-shrink:0;position:sticky;top:0;align-self:flex-start;height:100vh;background:#fff;border-right:1px solid var(--border);overflow-y:auto}
-  .app-mobile-topnav{display:none}
   .app-bottom-tabs{display:none!important}
   .app-content{padding:22px 28px}
   .app-content-inner{max-width:920px;margin:0}
@@ -3051,10 +3048,13 @@ function ClassHeatmap({STUDENTS,allRes}){
   </div>);
 }
 function TeacherOverview({allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule=[],teacherSubjects={}}){
-  const kpiAll=useMemo(()=>
-    TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}))
-      .sort((a,b)=>b.score-a.score)
-  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects]);
+  const kpiAll=useMemo(()=>{
+    const scored=TEACHERS.filter(teacher=>!ADMIN_TEACHERS.includes(teacher)).map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}));
+    const withScore=scored.filter(k=>k.score>0);
+    const withoutScore=scored.filter(k=>k.score===0);
+    // dense/joint rank — সমান স্কোর হলে একই র‍্যাংক (আগে raw index i+1 দিয়ে arbitrary rank দেওয়া হতো)
+    return[...denseRank(withScore,"score").map(k=>({...k,rank:k._rank})),...withoutScore.map(k=>({...k,rank:null}))];
+  },[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects]);
 
   const activeCount=kpiAll.filter(k=>k.score>0).length;
   const avgScore=activeCount?Math.round(kpiAll.filter(k=>k.score>0).reduce((a,b)=>a+b.score,0)/activeCount):0;
@@ -3076,8 +3076,8 @@ function TeacherOverview({allRes,lessonPlans,obsData,deadlines,dlSubmissions,exa
     {top3.map((k,i)=>(
       <div key={k.teacher} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<top3.length-1?`1px solid ${C.bd}`:"none"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:24,height:24,borderRadius:"50%",background:i===0?C.am+"22":C.teL,color:i===0?C.am:C.te,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:11}}>
-            {i===0?"🥇":i===1?"🥈":"🥉"}
+          <div style={{width:24,height:24,borderRadius:"50%",background:k.rank===1?C.am+"22":C.teL,color:k.rank===1?C.am:C.te,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:11}}>
+            {k.rank===1?"🥇":k.rank===2?"🥈":k.rank===3?"🥉":(k.rank||"—")}
           </div>
           <div style={{fontSize:12,fontWeight:600}}>{k.teacher}</div>
         </div>
@@ -3092,8 +3092,8 @@ function TeacherOverview({allRes,lessonPlans,obsData,deadlines,dlSubmissions,exa
     <div style={{marginTop:10,maxHeight:180,overflowY:"auto",borderTop:`1px solid ${C.bd}`,paddingTop:8}}>
       {kpiAll.map((k,i)=>(
         <div key={k.teacher} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:i<kpiAll.length-1?`1px solid ${C.bd}22`:"none"}}>
-          {/* র‍্যাংক */}
-          <div style={{width:18,fontSize:10,color:C.mu,textAlign:"right",flexShrink:0}}>{i+1}</div>
+          {/* র‍্যাংক — dense/joint rank, সমান স্কোরে একই র‍্যাংক */}
+          <div style={{width:18,fontSize:10,color:C.mu,textAlign:"right",flexShrink:0}}>{k.rank||"—"}</div>
           {/* নাম */}
           <div style={{flex:1,fontSize:11,color:k.score>0?C.tx:C.mu,fontWeight:k.score>0?600:400,
             whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
@@ -8550,17 +8550,36 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
   const [tab,setTab]=useState("ranking");
   const [selTeacher,setSelTeacher]=useState("");
   const [selProfile,setSelProfile]=useState(null);
+  const [rankPeriod,setRankPeriod]=useState("yearly"); // "monthly" | "yearly" — র‍্যাংকিং ট্যাবের জন্য
   const allRes=Object.values(results).flat();
 
+  // ── নির্বাচিত সময়কালের (মাসিক/বাৎসরিক) জন্য ফলাফল ও পাঠ পরিকল্পনা ফিল্টার — সবার জন্য একই
+  // period-filtered ডেটাসেট, যাতে subject/class কঠিনতা-ফ্যাক্টর normalization সবার জন্য সমান হয় ──
+  const periodRes=useMemo(()=>allRes.filter(r=>inRankPeriod(r.examDate||r.savedAt,rankPeriod,new Date())),[allRes,rankPeriod]);
+  const periodLPs=useMemo(()=>({
+    _v2:(lessonPlans._v2||[]).filter(p=>inRankPeriod(p.submittedAt||p.reviewedAt,rankPeriod,new Date())),
+    ...Object.fromEntries(Object.entries(lessonPlans||{}).filter(([k])=>k!=="_v2")),
+  }),[lessonPlans,rankPeriod]);
+  const periodObsData=useMemo(()=>({
+    ...obsData,
+    peerObservations:(obsData.peerObservations||[]).filter(o=>inRankPeriod(o.dateISO,rankPeriod,new Date())),
+  }),[obsData,rankPeriod]);
+
   // সব শিক্ষকের KPI গণনা (অ্যাডমিন/হেড স্যার/পরিচালক বাদে — সাধারণ শিক্ষকের সাথে তুলনা যথাযথ নয়)
-  const kpiAll=useMemo(()=>
-    TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)).map(teacher=>({teacher,...calcKPI(teacher,allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}))
-      .sort((a,b)=>b.score-a.score)
-  ,[allRes,lessonPlans,obsData,deadlines,dlSubmissions,examSchedule,teacherSubjects]);
+  // — dense/joint rank (সমান স্কোরে একই র‍্যাংক) + কনফিডেন্স (কম ডেটা হলে নির্ভরযোগ্যতা কম) ──
+  const kpiAll=useMemo(()=>{
+    const scored=TEACHERS.filter(t=>!ADMIN_TEACHERS.includes(t)).map(teacher=>({teacher,...calcKPI(teacher,periodRes,periodLPs,periodObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects)}));
+    const withScore=scored.filter(k=>k.score>0);
+    const withoutScore=scored.filter(k=>k.score===0);
+    return[
+      ...denseRank(withScore,"score").map(k=>({...k,rank:k._rank,total:withScore.length,confidence:Math.min(1,k.count/TEACHER_RANK_SHRINK_K)})),
+      ...withoutScore.map(k=>({...k,rank:null,total:withScore.length,confidence:0})),
+    ];
+  },[periodRes,periodLPs,periodObsData,deadlines,dlSubmissions,examSchedule,teacherSubjects]);
 
   const gradeColor=g=>g==="A+"?C.gr:g==="A"?C.te:g==="B"?C.am:g==="C"||g==="D"?C.co:C.mu;
 
-  // নির্বাচিত শিক্ষকের বিস্তারিত তথ্য
+  // নির্বাচিত শিক্ষকের বিস্তারিত তথ্য (সব-সময়ের ডেটা — "বিস্তারিত" ট্যাব সবসময় সম্পূর্ণ ইতিহাস দেখায়)
   const detail=selTeacher?kpiAll.find(k=>k.teacher===selTeacher):null;
   const detailRes=selTeacher?allRes.filter(r=>r.teacher===selTeacher):[];
 
@@ -8631,29 +8650,41 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
     {/* ── র‍্যাংকিং ট্যাব ── */}
     {tab==="ranking"&&(<div>
       {selProfile&&<TeacherProfile name={selProfile} results={results} lessonPlans={lessonPlans} obsData={obsData} onClose={()=>setSelProfile(null)} teacherSubjects={teacherSubjects}/>}
+
+      {/* মাসিক/বাৎসরিক টগল */}
+      <div style={{display:"flex",gap:6,marginBottom:10}}>
+        {[["monthly","এই মাস"],["yearly","এই বছর"]].map(([p,l])=>(
+          <button key={p} onClick={()=>setRankPeriod(p)} style={{flex:1,fontSize:12,fontWeight:700,padding:"8px 0",borderRadius:8,cursor:"pointer",
+            border:`1px solid ${C.pu}40`,background:rankPeriod===p?C.pu:"#fff",color:rankPeriod===p?"#fff":C.pu}}>{l}</button>
+        ))}
+      </div>
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
         <Stat label="সেরা KPI" value={kpiAll[0]?.score||0} color={C.gr} sub={kpiAll[0]?.teacher}/>
         <Stat label="গড় KPI স্কোর" value={Math.round(kpiAll.filter(k=>k.score>0).reduce((a,b)=>a+b.score,0)/(kpiAll.filter(k=>k.score>0).length||1))||0} color={C.pu} sub="সক্রিয় শিক্ষক"/>
         <Stat label="A+ গ্রেড" value={kpiAll.filter(k=>k.grade==="A+").length} color={C.gr} sub="শিক্ষক"/>
-        <Stat label="ডেটা নেই" value={kpiAll.filter(k=>k.score===0).length} color={C.mu} sub="ফলাফল এন্ট্রি নেই"/>
+        <Stat label="ডেটা নেই" value={kpiAll.filter(k=>k.score===0).length} color={C.mu} sub={rankPeriod==="monthly"?"এই মাসে এন্ট্রি নেই":"এই বছরে এন্ট্রি নেই"}/>
       </div>
       <Card>
-        <H3>শিক্ষক KPI র‍্যাংকিং</H3>
-        <div style={{fontSize:11,color:C.mu,marginBottom:8}}>👆 নামে ক্লিক করলে প্রোফাইল দেখা যাবে</div>
+        <H3>শিক্ষক KPI র‍্যাংকিং ({rankPeriod==="monthly"?"এই মাস":"এই বছর"})</H3>
+        <div style={{fontSize:11,color:C.mu,marginBottom:8}}>👆 নামে ক্লিক করলে প্রোফাইল দেখা যাবে। সমান স্কোরে একই র‍্যাংক (যুগ্ম র‍্যাংক)।</div>
         <table>
           <thead><tr><th>র‍্যাংক</th><th>শিক্ষক</th><th>স্কোর</th><th>গ্রেড</th></tr></thead>
           <tbody>
-            {kpiAll.map(({teacher,score,grade,count,lp,dlMissed,dlTotal},i)=>{
+            {kpiAll.map(({teacher,score,grade,count,lp,dlMissed,dlTotal,rank,confidence})=>{
               const gc=gradeColor(grade);
-              const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":"";
-              return(<tr key={i}>
-                <td style={{fontWeight:700,color:C.mu,fontSize:13}}>{medal||i+1}</td>
+              const medal=rank===1?"🥇":rank===2?"🥈":rank===3?"🥉":"";
+              return(<tr key={teacher}>
+                <td style={{fontWeight:700,color:C.mu,fontSize:13}}>{medal||rank||"—"}</td>
                 <td style={{fontWeight:600,fontSize:12,color:C.pu,textDecoration:"underline dotted",cursor:"pointer"}} onClick={()=>setSelProfile(teacher)}>{teacher}</td>
                 <td><div style={{display:"flex",alignItems:"center",gap:5}}>
                   <div style={{flex:1,height:8,background:"#eee",borderRadius:4}}><div style={{width:`${score}%`,height:"100%",background:score>=70?C.gr:score>=40?C.am:C.re,borderRadius:4,transition:"width 0.5s"}}/></div>
                   <span style={{fontSize:12,fontWeight:700,color:gc,minWidth:24}}>{score}</span>
                 </div>
-                <div style={{fontSize:10,color:C.mu,marginTop:2}}>{count}টি ফলাফল • {lp}টি পাঠ{dlTotal>0?` • ❌ ${dlMissed}টি miss`:""}</div></td>
+                <div style={{fontSize:10,color:C.mu,marginTop:2}}>
+                  {count}টি ফলাফল • {lp}টি পাঠ{dlTotal>0?` • ❌ ${dlMissed}টি miss`:""}
+                  {score>0&&confidence<1&&<span style={{color:C.co,fontWeight:600}}> • ⚠️ সীমিত ডেটা</span>}
+                </div></td>
                 <td>{badge(gc,grade)}</td>
               </tr>);
             })}
@@ -12280,9 +12311,6 @@ function App(){
               <button onClick={()=>setShowChangePwd(true)} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="পাসওয়ার্ড পরিবর্তন">🔑</button>
               <button onClick={handleLogout} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ffffff50",background:"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}} title="লগআউট">🚪</button>
             </div>
-          </div>
-          <div className="app-mobile-topnav">
-            {visiblePages.map(p=>(<button key={p.id} onClick={()=>handlePageChange(p.id)} style={{padding:"6px 10px",borderRadius:16,border:`1px solid ${page===p.id?C.pu:C.bd}`,background:page===p.id?C.puL:"transparent",color:page===p.id?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:page===p.id?700:400,whiteSpace:"nowrap",flexShrink:0}}>{p.label}</button>))}
           </div>
           <div className="app-content">
             <div className="app-content-inner app-page-fade" key={page}>
