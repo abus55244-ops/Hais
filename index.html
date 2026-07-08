@@ -156,7 +156,7 @@ button:active{transform:scale(0.97)}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useMemo,useEffect}=React;
+const {useState,useMemo,useEffect,useRef}=React;
 function Portal({children}){
   // পপআপ/মডালকে সরাসরি <body>-এর নিচে রেন্ডার করে — যাতে কোনো parent-এর CSS transform/animation
   // (যেমন পেজ ট্রানজিশন fade) থাকলেও position:fixed মডাল ভুল জায়গায় (পুরো পেজের মাঝে, স্ক্রল করে
@@ -429,18 +429,61 @@ const fbObsDataV2ToState=(v2obj)=>{
 };
 
 // ── studentProfiles: প্রতিটি শিক্ষার্থীর প্রোফাইল আলাদা path এ ──
+// ★ বাগ-ফিক্স: আগে Firebase-এ _fbKey(studentKey) ব্যবহার করে সংরক্ষণ হতো (স্পেস আন্ডারস্কোরে বদলে যায়),
+// কিন্তু আসল নামটি (স্পেসসহ) কোথাও রেকর্ডের ভেতরে সংরক্ষিত হতো না। ফলে fbStudentProfilesV2ToState
+// sanitized key-কেই সরাসরি object-key হিসেবে ফেরত দিত, অথচ পুরো অ্যাপ জুড়ে profile lookup সবসময়
+// আসল (raw, স্পেসসহ) নাম দিয়ে হয় (যেমন studentProfiles?.[name])। তাই কম নম্বরের কারণ বা প্রোফাইলের
+// অন্য যেকোনো granular আপডেট Firebase-এ ঠিকই যেত, কিন্তু reload/অন্য ডিভাইসে লোড হওয়ার পর সেটি
+// একটি ভিন্ন (sanitized) key-এর নিচে জমা হতো বলে UI-তে (আসল নামের key-তে) দেখা যেত না। এখন থেকে
+// আসল নামটিও রেকর্ডের ভেতরে (_studentName) সংরক্ষণ করা হচ্ছে, এবং state পুনর্গঠনের সময় সেটি দিয়েই
+// key বানানো হচ্ছে — স্টুডেন্টের নামে স্পেস/বিশেষ অক্ষর যাই থাকুক না কেন, lookup সবসময় মিলবে।
 const fbSaveStudentProfile=async(studentKey,profileData)=>{
   if(!window.__fbReady)return false;
   try{
     const k=_fbKey(studentKey);
-    await window.__fbDB.ref(`${FB_PATH}/studentProfiles_v2/${k}`).set(profileData);
+    await window.__fbDB.ref(`${FB_PATH}/studentProfiles_v2/${k}`).set({...profileData,_studentName:studentKey});
     return true;
   }catch(err){console.error("FB studentProfile save:",err);return false;}
 };
 const fbStudentProfilesV2ToState=(v2obj,existingKeys)=>{
   if(!v2obj)return null;
-  // studentProfiles এর key সাধারণত "নাম__শ্রেণি" ধরনের — সরাসরি object ফিরিয়ে দিচ্ছি কারণ key sanitize করার পরও unique থাকে
-  return v2obj;
+  // প্রতিটি রেকর্ডে সংরক্ষিত আসল নাম (_studentName) দিয়ে object পুনর্গঠন করা হচ্ছে, যাতে
+  // sanitized Firebase key নয় বরং আসল (স্পেসসহ) নাম দিয়েই key তৈরি হয় — এটাই বাকি পুরো
+  // অ্যাপে profile lookup-এর জন্য ব্যবহৃত হয়। পুরনো (fix-এর আগে লেখা) রেকর্ডে _studentName
+  // না থাকলে সেক্ষেত্রে sanitized key-ই ফলব্যাক হিসেবে ব্যবহার হবে (আগের আচরণ, নতুন ভাঙে না)।
+  const state={};
+  Object.entries(v2obj).forEach(([k,rec])=>{
+    if(!rec)return;
+    const realName=rec._studentName||k;
+    const{_studentName,...rest}=rec;
+    state[realName]=rest;
+  });
+  return state;
+};
+
+// ── studentDepartments (বিভাগ): প্রতিটি ছাত্রের বিভাগ আলাদা path এ — আগে এই ফিল্ডটির কোনো
+// আলাদা granular write ছিল না, শুধু bulk auto-save-এ পাঠানো হতো, কিন্তু GRANULAR_FIELDS তালিকায়
+// থাকায় bulk auto-save থেকেও বাদ পড়ে যেত — ফলে বিভাগ নির্ধারণ করলেও তা Firebase-এ কখনো
+// সংরক্ষিতই হতো না, শুধু নিজের ডিভাইসের IndexedDB-তে থাকত। তাই অন্য ডিভাইস/শিক্ষকের কাছে
+// পুরনো (বা খালি) বিভাগ তথ্য দেখা যেত এবং নম্বর এন্ট্রিতে ছাত্র তালিকা থেকে বাদ পড়ে যেত। ──
+const fbSaveStudentDept=async(studentName,dept)=>{
+  if(!window.__fbReady)return false;
+  try{
+    const k=_fbKey(studentName);
+    // মূল (আসল) নামটাও value-এর মধ্যে সংরক্ষণ করা হচ্ছে, কারণ Firebase key-তে স্পেস আন্ডারস্কোরে
+    // বদলে যায় (_fbKey) — শুধু key থেকে নাম পুনর্গঠন করলে স্পেসসহ নামের ক্ষেত্রে ভুল হতে পারে।
+    if(dept)await window.__fbDB.ref(`${FB_PATH}/studentDepartments_v2/${k}`).set({name:studentName,dept});
+    else await window.__fbDB.ref(`${FB_PATH}/studentDepartments_v2/${k}`).remove();
+    return true;
+  }catch(err){console.error("FB studentDept save:",err);return false;}
+};
+const fbStudentDepartmentsV2ToState=(v2obj)=>{
+  if(!v2obj)return null;
+  const state={};
+  Object.values(v2obj).forEach(rec=>{
+    if(rec&&rec.name)state[rec.name]=rec.dept;
+  });
+  return state;
 };
 
 // ── weeklyTargets: প্রতিটি সাপ্তাহিক টার্গেট আলাদা path এ (id ভিত্তিক) — এসএসসি ২০২৭ ব্যাচ ──
@@ -769,6 +812,8 @@ function BulkAttendance({obsData,setObsData}){
   const [statuses,setStatuses]=useState(initStatus);
   const [saved,setSaved]=useState(false);
   const [attDate,setAttDate]=useState(todayISO);
+  // ── শুক্রবার স্কুল স্বয়ংক্রিয়ভাবে বন্ধ থাকে — তাই এই দিনে হাজিরা মার্ক করার প্রয়োজন নেই, ডিফল্টভাবে ব্লক করা হচ্ছে ──
+  const isFridaySelected=new Date(attDate+"T00:00:00").getDay()===5;
 
   // আজকে কে কে আগে সেভ করেছে সেটা দেখার জন্য
   const savedToday=useMemo(()=>{
@@ -806,6 +851,7 @@ function BulkAttendance({obsData,setObsData}){
   };
 
   const saveBulk=()=>{
+    if(isFridaySelected)return; // শুক্রবার স্কুল বন্ধ — নিরাপত্তার জন্য দ্বিতীয় স্তরের চেক
     const dateLabel=new Date(attDate+"T00:00:00").toLocaleDateString("bn-BD");
     setObsData(prev=>{
       const updated={...prev};
@@ -847,6 +893,15 @@ function BulkAttendance({obsData,setObsData}){
           style={{flex:1,padding:"7px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13,outline:"none"}}/>
       </div>
 
+      {/* শুক্রবার নোটিশ — স্কুল স্বয়ংক্রিয়ভাবে বন্ধ থাকায় হাজিরা মার্ক করার প্রয়োজন নেই */}
+      {isFridaySelected&&(
+        <div style={{background:C.puL,border:`1px solid ${C.pu}30`,borderRadius:10,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.pu}}>🕌 শুক্রবার — স্কুল স্বয়ংক্রিয়ভাবে বন্ধ</div>
+          <div style={{fontSize:11,color:C.mu,marginTop:3}}>এই দিনে হাজিরা মার্ক করার প্রয়োজন নেই, তাই এই তারিখে কোনো হিসাব যুক্ত হবে না।</div>
+        </div>
+      )}
+
+      {!isFridaySelected&&(<>
       {/* সবাইকে একসাথে মার্ক */}
       <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
         <div style={{fontSize:11,color:C.mu,alignSelf:"center",marginRight:2}}>সবাইকে:</div>
@@ -890,7 +945,6 @@ function BulkAttendance({obsData,setObsData}){
           );
         })}
       </div>
-
       {/* সারসংক্ষেপ */}
       <div style={{display:"flex",gap:8,marginBottom:12,justifyContent:"center"}}>
         <div style={{textAlign:"center",padding:"6px 12px",borderRadius:8,background:C.gr+"18",border:`1px solid ${C.gr}30`}}>
@@ -921,6 +975,7 @@ function BulkAttendance({obsData,setObsData}){
         {saved?"✅ সেভ হয়ে গেছে!":"💾 সকলের উপস্থিতি সেভ করুন"}
       </button>
       {saved&&<div style={{textAlign:"center",fontSize:11,color:C.gr,marginTop:6}}>✓ সকল শিক্ষকের প্রোফাইলে উপস্থিতি যোগ হয়েছে</div>}
+      </>)}
     </Card>
 
     {/* সাম্প্রতিক রেকর্ড সারসংক্ষেপ */}
@@ -4956,6 +5011,7 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
       if(dept)updated[name]=dept; else delete updated[name];
       return updated;
     });
+    fbSaveStudentDept(name,dept); // granular Firebase write — আগে এটা মিস হয়ে যেত, ফলে অন্য ডিভাইসে বিভাগ তথ্য সিঙ্ক হতো না
   };
 
   return(<div>
@@ -5088,11 +5144,22 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
   const isMarksExempt=ATT_REVIEW_EXCLUDED.includes(name);
   const obs=obsData[name]||{};
   const commentsList=obs.comments||[];
-  const attList=obs.attendance||[];
-  const presentDays=attList.filter(a=>a.status==="present").length;
-  const lateCount=attList.filter(a=>a.status==="late").length;
-  const totalDays=attList.length;
-  const attPct=totalDays?Math.round((presentDays+lateCount*0.5)/totalDays*100):null;
+  // ── উপস্থিতি (প্রোফাইল): শুক্রবার স্কুল স্বয়ংক্রিয়ভাবে বন্ধ থাকায় হিসাবের বাইরে রাখা হয়েছে।
+  // এখানে "কতদিন এসেছেন" দেখানো হয় না — শুধু "কতদিন দেরি করেছেন" ও "কতদিন ছুটিতে ছিলেন" তারিখসহ,
+  // মাসিক ও বাৎসরিক — দুই ভাগে দেখানো হয়। পর্যবেক্ষণ মডিউল থেকে সেভ করা তথ্য এখানে স্বয়ংক্রিয়ভাবে চলে আসে। ──
+  const isFridayISO=iso=>{try{return new Date(iso+"T00:00:00").getDay()===5;}catch(e){return false;}};
+  const fmtAttDate=iso=>{try{return new Date(iso+"T00:00:00").toLocaleDateString("bn-BD",{day:"numeric",month:"short"});}catch(e){return iso;}};
+  const attListAll=(obs.attendance||[]).filter(a=>a.isoDate&&!isFridayISO(a.isoDate));
+  const buildAttSummary=period=>{
+    const list=attListAll.filter(a=>inRankPeriod(a.isoDate,period,new Date()));
+    const sortByDate=(a,b)=>(a.isoDate||"")<(b.isoDate||"")?-1:1;
+    return{
+      lateList:list.filter(a=>a.status==="late").sort(sortByDate),
+      leaveList:list.filter(a=>a.status==="leave").sort(sortByDate),
+    };
+  };
+  const attMonthly=buildAttSummary("monthly");
+  const attYearly=buildAttSummary("yearly");
   const sylList=obs.syllabus||[];
   const sylPct=sylList.length?Math.round(sylList.filter(s=>s.covered).length/sylList.length*100):null;
   const fbList=obs.feedback||[];
@@ -5204,11 +5271,48 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
 
 
         {/* পর্যবেক্ষণ সারসংক্ষেপ */}
-        {(attPct!==null||sylPct!==null||avgFb!==null)&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
-          {attPct!==null&&<Stat label="উপস্থিতি" value={`${attPct}%`} color={attPct>=85?C.gr:attPct>=70?C.am:C.re}/>}
+        {(sylPct!==null||avgFb!==null)&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
           {sylPct!==null&&<Stat label="সিলেবাস" value={`${sylPct}%`} color={sylPct>=75?C.gr:sylPct>=50?C.am:C.re}/>}
           {avgFb!==null&&<Stat label="ফিডব্যাক" value={`${avgFb}/5`} color={avgFb>=4?C.gr:avgFb>=3?C.am:C.re}/>}
         </div>)}
+
+        {/* হাজিরা — মাসিক ও বাৎসরিক: শুধু দেরি ও ছুটির তারিখ (শুক্রবার বাদে) */}
+        {attListAll.length>0&&(
+          <div style={{marginBottom:14}}>
+            <H3>🗓 হাজিরা</H3>
+            <div style={{fontSize:10.5,color:C.mu,marginBottom:8}}>শুক্রবার স্কুল বন্ধ থাকায় হিসাবের বাইরে রাখা হয়েছে</div>
+            {[["এই মাস",attMonthly],["এই বছর",attYearly]].map(([label,data])=>(
+              <div key={label} style={{marginBottom:8,border:`1px solid ${C.bd}`,borderRadius:10,padding:"9px 12px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontWeight:700,fontSize:12,color:C.tx}}>{label}</div>
+                  <div style={{display:"flex",gap:10}}>
+                    <span style={{fontSize:11,fontWeight:700,color:C.am}}>⏰ দেরি: {data.lateList.length}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:"#6366f1"}}>🏖 ছুটি: {data.leaveList.length}</span>
+                  </div>
+                </div>
+                {data.lateList.length>0&&(
+                  <div style={{marginBottom:data.leaveList.length>0?6:0}}>
+                    <div style={{fontSize:10,color:C.mu,marginBottom:3}}>দেরির তারিখ:</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                      {data.lateList.map((a,i)=>(<span key={i} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.am+"18",color:C.am,fontWeight:600}}>{fmtAttDate(a.isoDate)}</span>))}
+                    </div>
+                  </div>
+                )}
+                {data.leaveList.length>0&&(
+                  <div>
+                    <div style={{fontSize:10,color:C.mu,marginBottom:3}}>ছুটির তারিখ:</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                      {data.leaveList.map((a,i)=>(<span key={i} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:"#6366f118",color:"#6366f1",fontWeight:600}}>{fmtAttDate(a.isoDate)}</span>))}
+                    </div>
+                  </div>
+                )}
+                {data.lateList.length===0&&data.leaveList.length===0&&(
+                  <div style={{fontSize:10.5,color:C.gr,fontWeight:600}}>✓ কোনো দেরি বা ছুটি নেই</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* পরিসংখ্যান */}
         {!isMarksExempt&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
@@ -11631,6 +11735,9 @@ function App(){
   // ── DATA STATE ──
   const [page,setPage]=useState("dashboard");
   const [navDepth,setNavDepth]=useState(0); // ব্রাউজার হিস্টোরির গভীরতা — হার্ডওয়্যার/ব্রাউজার ব্যাক বাটন কতবার চাপলে অ্যাপের মধ্যেই থাকা যাবে তা ট্র্যাক করে
+  // ── প্রতিটি পেজের স্ক্রল পজিশন আলাদাভাবে মনে রাখার জন্য (পেজ বদলালে বা ব্যাক করলে যেন পুরনো
+  // স্ক্রল অবস্থানে ফিরে যাওয়া যায়, বারবার একদম উপরে চলে যাওয়ার সমস্যা এড়াতে) ──
+  const scrollPosRef=useRef({});
   const [results,setResults]=useState({});
   const [lessonPlans,setLessonPlans]=useState({});
   const [obsData,setObsData]=useState({});
@@ -11826,7 +11933,9 @@ function App(){
           const spV2=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2));
           else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
-          if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
+          const sdV2=data.studentDepartments_v2?fbStudentDepartmentsV2ToState(data.studentDepartments_v2):null;
+          if(sdV2)setStudentDepartments(prev=>mergeObjState(data.studentDepartments,sdV2));
+          else if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
           HAISDB.setSync("hais_data_v3",data);
           window.__fbPreloadData=null; // মেমোরি মুক্ত করো
@@ -11895,7 +12004,9 @@ function App(){
           const spV2b=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
           if(spV2b)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2b));
           else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
-          if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
+          const sdV2b=data.studentDepartments_v2?fbStudentDepartmentsV2ToState(data.studentDepartments_v2):null;
+          if(sdV2b)setStudentDepartments(prev=>mergeObjState(data.studentDepartments,sdV2b));
+          else if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
           HAISDB.setSync("hais_data_v3",data);
           setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -11957,7 +12068,9 @@ function App(){
       const spV2c=data.studentProfiles_v2?fbStudentProfilesV2ToState(data.studentProfiles_v2):null;
       if(spV2c)setStudentProfiles(prev=>mergeObjState(data.studentProfiles,spV2c));
       else if(data.studentProfiles!==undefined)setStudentProfiles(data.studentProfiles);
-      if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
+      const sdV2c=data.studentDepartments_v2?fbStudentDepartmentsV2ToState(data.studentDepartments_v2):null;
+      if(sdV2c)setStudentDepartments(prev=>mergeObjState(data.studentDepartments,sdV2c));
+      else if(data.studentDepartments!==undefined)setStudentDepartments(data.studentDepartments);
 
       HAISDB.setSync("hais_data_v3",data);
       setTimeout(()=>{skipNextFbPushRef.current=false;},500);
@@ -12044,6 +12157,21 @@ function App(){
   const goBack=()=>{
     if(navDepth>0)window.history.back();
   };
+
+  // ── স্ক্রল পজিশন সংরক্ষণ ও পুনরুদ্ধার: dashboard/অন্য কোনো পেজে স্ক্রল করে ভিতরে কোথাও ক্লিক করে
+  // ঢুকলে, তারপর ব্যাক করলে যেন পুরনো পেজ আবার একদম উপর থেকে না শুরু হয়ে আগের স্ক্রল অবস্থানেই ফেরত যায়।
+  // পেজ বদলানোর সাথে সাথে বর্তমান স্ক্রল অবস্থান চলতি পেজের জন্য টানা রেকর্ড করা হয়, এবং নতুন পেজ
+  // মাউন্ট হওয়ার পর তার আগের সংরক্ষিত অবস্থানে (না থাকলে একদম উপরে) ফিরিয়ে নেওয়া হয়।
+  useEffect(()=>{
+    const onScroll=()=>{scrollPosRef.current[page]=window.scrollY;};
+    window.addEventListener("scroll",onScroll,{passive:true});
+    return ()=>window.removeEventListener("scroll",onScroll);
+  },[page]);
+  useEffect(()=>{
+    const saved=scrollPosRef.current[page]||0;
+    const raf=requestAnimationFrame(()=>window.scrollTo(0,saved));
+    return ()=>cancelAnimationFrame(raf);
+  },[page]);
 
   const handleCoordToggle=(taskId)=>{
     setCoordTaskStatus(prev=>{
