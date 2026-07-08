@@ -109,7 +109,7 @@ button:active{transform:scale(0.97)}
 @keyframes slideUpSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes sheetBackdropIn{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.001ms!important;animation-iteration-count:1!important;transition-duration:0.001ms!important;}}
-.dash-card{animation:fadeInUp 0.38s ease both}
+.dash-card{animation:fadeInUp 0.38s ease}
 .dash-card:nth-child(1){animation-delay:0.04s}.dash-card:nth-child(2){animation-delay:0.09s}
 .dash-card:nth-child(3){animation-delay:0.14s}.dash-card:nth-child(4){animation-delay:0.19s}
 .dash-card:nth-child(5){animation-delay:0.24s}.dash-card:nth-child(6){animation-delay:0.29s}
@@ -128,7 +128,7 @@ button:active{transform:scale(0.97)}
 .app-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .app-content{padding:12px;padding-bottom:24px;overscroll-behavior-y:contain}
 .app-content-inner{max-width:840px;margin:0 auto}
-.app-page-fade{animation:fadeInUp 0.22s var(--ease) both}
+.app-page-fade{animation:fadeInUp 0.22s var(--ease)}
 .app-bottom-tabs{display:none}
 .app-more-sheet-backdrop{position:fixed;inset:0;background:rgba(20,10,50,0.42);z-index:998;animation:sheetBackdropIn .18s ease both}
 .app-more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;z-index:999;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(20,10,60,0.25);max-height:75vh;overflow-y:auto;animation:slideUpSheet .26s var(--ease) both;padding-bottom:env(safe-area-inset-bottom)}
@@ -157,6 +157,12 @@ button:active{transform:scale(0.97)}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useMemo,useEffect}=React;
+function Portal({children}){
+  // পপআপ/মডালকে সরাসরি <body>-এর নিচে রেন্ডার করে — যাতে কোনো parent-এর CSS transform/animation
+  // (যেমন পেজ ট্রানজিশন fade) থাকলেও position:fixed মডাল ভুল জায়গায় (পুরো পেজের মাঝে, স্ক্রল করে
+  // অনেক নিচে/উপরে) না গিয়ে সবসময় বর্তমান ভিউপোর্টের মাঝখানেই সঠিকভাবে দেখায়।
+  return ReactDOM.createPortal(children,document.body);
+}
 const IDB_NAME="HAIS_DB";
 const IDB_STORE="kv";
 const IDB_VER=1;
@@ -4065,6 +4071,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
   },[allRes,name,cls,studentDepartments,rankPeriod]);
 
   return(
+    <Portal>
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:12}} onClick={onClose}>
       <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 12px 40px rgba(83,68,181,0.18)"}} onClick={e=>e.stopPropagation()}>
 
@@ -4418,6 +4425,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -5121,6 +5129,7 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
   const [expandedExam,setExpandedExam]=useState(null); // key string of expanded row
 
   return(
+    <Portal>
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
       <div style={{background:"#fff",borderRadius:14,padding:18,width:"100%",maxWidth:420,maxHeight:"82vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
 
@@ -5415,6 +5424,7 @@ function TeacherProfile({name,results,lessonPlans,obsData={},onClose,isSelf=fals
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
