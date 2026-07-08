@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
-<title>HAIS — Heritage Academic Intelligence System v7.4</title>
+<title>HAIS — Heritage Academic Intelligence System v7.3</title>
 <meta name="description" content="Heritage Public School — শিক্ষক ও ফলাফল ব্যবস্থাপনা"/>
 <meta name="theme-color" content="#5344b5"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -104,7 +104,6 @@ button{transition:transform .12s var(--ease),opacity .12s var(--ease),background
 button:active{transform:scale(0.97)}
 :focus-visible{outline:2px solid #5344b5;outline-offset:2px}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pageFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes scaleIn{from{opacity:0;transform:scale(0.93)}to{opacity:1;transform:scale(1)}}
 @keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(83,68,181,0.18)}50%{box-shadow:0 0 0 8px rgba(83,68,181,0)}}
 @keyframes slideUpSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -129,7 +128,7 @@ button:active{transform:scale(0.97)}
 .app-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .app-content{padding:12px;padding-bottom:24px;overscroll-behavior-y:contain}
 .app-content-inner{max-width:840px;margin:0 auto}
-.app-page-fade{animation:pageFadeIn 0.18s linear both}
+.app-page-fade{animation:fadeInUp 0.22s var(--ease) both}
 .app-bottom-tabs{display:none}
 .app-more-sheet-backdrop{position:fixed;inset:0;background:rgba(20,10,50,0.42);z-index:998;animation:sheetBackdropIn .18s ease both}
 .app-more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;z-index:999;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(20,10,60,0.25);max-height:75vh;overflow-y:auto;animation:slideUpSheet .26s var(--ease) both;padding-bottom:env(safe-area-inset-bottom)}
@@ -581,6 +580,37 @@ const SUBJECTS_BY_CLASS={
   "X":["বাংলা প্রথম পত্র","বাংলা দ্বিতীয় পত্র","English প্রথম পত্র","English দ্বিতীয় পত্র","গণিত","বাংলাদেশ ও বিশ্বপরিচয়","বিজ্ঞান","ধর্ম","তথ্য ও যোগাযোগ প্রযুক্তি","পদার্থবিজ্ঞান","রসায়ন","জীববিজ্ঞান","উচ্চতর গণিত","ইতিহাস","ভূগোল","কৃষি শিক্ষা","অর্থনীতি","হিসাববিজ্ঞান","ব্যবসায় উদ্যোগ","ফিনান্স ও ব্যাংকিং"],
 };
 const SUBJECTS=[...new Set(Object.values(SUBJECTS_BY_CLASS).flat())];
+
+// ══════════════════════════════════════════════
+// ★★★ নবম-দশম শ্রেণির বিভাগ (গ্রুপ) ব্যবস্থা — বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা ★★★
+// বাংলাদেশে নবম শ্রেণি থেকেই ছাত্ররা বিভাগ বেছে নেয় এবং দশম পর্যন্ত একই বিভাগে থাকে।
+// এখানে বিভাগ-ভিত্তিক বিষয় ম্যাপিং সংজ্ঞায়িত করা হলো, যাতে সারা অ্যাপে (ছাত্র তালিকা,
+// ফলাফল এন্ট্রি, রিপোর্ট, প্রোফাইল ইত্যাদি) সঠিক বিষয় দেখানো/ফিল্টার করা যায়।
+// ══════════════════════════════════════════════
+const GROUP_CLASSES=["IX","X"]; // এই শ্রেণিগুলোতেই বিভাগ নির্ধারণ করা যায়
+const GROUPS=["বিজ্ঞান","মানবিক","ব্যবসায় শিক্ষা"];
+// সব বিভাগের জন্য অভিন্ন (আবশ্যিক) বিষয়সমূহ — মোট ৭টি
+const COMPULSORY_SUBJECTS_9_10=["বাংলা প্রথম পত্র","বাংলা দ্বিতীয় পত্র","English প্রথম পত্র","English দ্বিতীয় পত্র","গণিত","ধর্ম","তথ্য ও যোগাযোগ প্রযুক্তি"];
+// প্রতিটি বিভাগের নিজস্ব বিষয়সমূহ — বিজ্ঞান বিভাগে "বাংলাদেশ ও বিশ্বপরিচয়" থাকে (সাধারণ বিজ্ঞানের বদলে),
+// আর মানবিক ও ব্যবসায় শিক্ষা উভয় বিভাগেই "বিজ্ঞান" (সাধারণ) ও "কৃষি শিক্ষা" অভিন্নভাবে থাকে।
+const GROUP_SUBJECTS={
+  "বিজ্ঞান":["পদার্থবিজ্ঞান","রসায়ন","জীববিজ্ঞান","উচ্চতর গণিত","বাংলাদেশ ও বিশ্বপরিচয়"],
+  "মানবিক":["ইতিহাস","ভূগোল","অর্থনীতি","বিজ্ঞান","কৃষি শিক্ষা"],
+  "ব্যবসায় শিক্ষা":["হিসাববিজ্ঞান","ব্যবসায় উদ্যোগ","ফিনান্স ও ব্যাংকিং","বিজ্ঞান","কৃষি শিক্ষা"]
+};
+// একটি নির্দিষ্ট বিভাগের জন্য প্রযোজ্য সকল বিষয় (আবশ্যিক + বিভাগীয়)
+const subjectsForGroup=(dept)=>[...COMPULSORY_SUBJECTS_9_10,...(GROUP_SUBJECTS[dept]||[])];
+// একজন নির্দিষ্ট ছাত্রের জন্য প্রযোজ্য বিষয়তালিকা — বিভাগ নির্ধারিত না থাকলে/গ্রুপ-শ্রেণি না হলে
+// সম্পূর্ণ তালিকা দেখানো হয় (নিরাপদ ডিফল্ট), যাতে কোনো তথ্য লুকিয়ে না যায়।
+const getStudentSubjects=(cls,name,studentDepartments={})=>{
+  if(!GROUP_CLASSES.includes(cls))return SUBJECTS_BY_CLASS[cls]||SUBJECTS;
+  const dept=studentDepartments[name];
+  if(!dept)return SUBJECTS_BY_CLASS[cls]||SUBJECTS;
+  return subjectsForGroup(dept);
+};
+// একটি বিষয় কোন কোন বিভাগের আওতাভুক্ত তা বের করা (একাধিক বিভাগেও থাকতে পারে, যেমন "বিজ্ঞান"/"কৃষি শিক্ষা"
+// মানবিক ও ব্যবসায় শিক্ষা উভয়েই আছে; আবশ্যিক বিষয় হলে খালি array — সবার জন্য উন্মুক্ত)
+const groupsOfSubject=(subject)=>GROUPS.filter(g=>GROUP_SUBJECTS[g].includes(subject));
 const EXAM_LOWER=["Chapter Final","First Term","Second Term","Third Term"];
 const EXAM_UPPER=["Chapter Final","Fortnightly Exam","Half-Yearly Exam","Annual Exam"];
 const EXAM_ORDER={"Chapter Final":1,"First Term":2,"Fortnightly Exam":2,"Second Term":3,"Half-Yearly Exam":3,"Third Term":4,"Annual Exam":4};
@@ -1597,7 +1627,7 @@ function PeerObservation({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
    (নির্দিষ্ট তারিখ পর্যন্ত + কী ব্যবস্থা নেওয়া হলো — সেই তারিখে স্বয়ংক্রিয়ভাবে বাদ পড়বে,
    অথবা "শাস্তি শেষ" চেপে আগেভাগেও শেষ করা যাবে) সেট করতে পারবেন।
 ══════════════════════════════════════════════ */
-function HomeworkReport({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
+function HomeworkReport({obsData,setObsData,currentUser,isAdmin,STUDENTS,studentDepartments={}}){
   STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const incidents=obsData.homeworkIncidents||[];
   const actions=obsData.homeworkActions||[];
@@ -1691,18 +1721,35 @@ function HomeworkReport({obsData,setObsData,currentUser,isAdmin,STUDENTS}){
         <div style={{flex:1}}>
           <div style={{fontSize:11,color:C.mu,marginBottom:3}}>বিষয়</div>
           <select value={subject} onChange={e=>setSubject(e.target.value)} style={{width:"100%"}}>
-            {(SUBJECTS_BY_CLASS[cls]||SUBJECTS).map(s=><option key={s} value={s}>{s}</option>)}
+            {GROUP_CLASSES.includes(cls)?(<>
+              <optgroup label="আবশ্যিক বিষয়">
+                {(SUBJECTS_BY_CLASS[cls]||SUBJECTS).filter(s=>!groupsOfSubject(s).length).map(s=><option key={s} value={s}>{s}</option>)}
+              </optgroup>
+              {GROUPS.map(g=>{
+                const opts=(SUBJECTS_BY_CLASS[cls]||SUBJECTS).filter(s=>GROUP_SUBJECTS[g].includes(s));
+                return opts.length?(<optgroup key={g} label={`বিভাগীয় বিষয় — ${g}`}>{opts.map(s=><option key={s} value={s}>{s}</option>)}</optgroup>):null;
+              })}
+            </>):(SUBJECTS_BY_CLASS[cls]||SUBJECTS).map(s=><option key={s} value={s}>{s}</option>)}
           </select>
         </div>
       </div>
+      {(()=>{const hwSubjGroups=groupsOfSubject(subject);const hwGroupActive=GROUP_CLASSES.includes(cls)&&hwSubjGroups.length>0;return hwGroupActive&&(
+        <div style={{background:C.puL,border:`1px solid ${C.pu}40`,borderRadius:8,padding:"6px 10px",marginBottom:8,fontSize:11.5,color:C.pu}}>
+          🎓 <strong>{subject}</strong> শুধুমাত্র <strong>{hwSubjGroups.join(" / ")}</strong> বিভাগের ছাত্রদের বিষয় — নিচে শুধু তাদেরই দেখানো হচ্ছে।
+        </div>
+      );})()}
       <div style={{fontSize:12,color:C.mu,marginBottom:8}}>যেসব শিক্ষার্থী পড়া করে আসেনি, তাদের নামে টিক দিন:</div>
-      {STUDENTS[cls].map(name=>(
+      {(()=>{
+        const hwSubjGroups=groupsOfSubject(subject);
+        const roster=(GROUP_CLASSES.includes(cls)&&hwSubjGroups.length)?(STUDENTS[cls]||[]).filter(n=>hwSubjGroups.includes(studentDepartments[n])):(STUDENTS[cls]||[]);
+        return roster.map(name=>(
         <div key={name} onClick={()=>setChecked(p=>({...p,[name]:!p[name]}))}
           style={{display:"flex",alignItems:"center",gap:8,padding:"7px 4px",borderBottom:`1px solid ${C.bd}`,cursor:"pointer"}}>
           <input type="checkbox" checked={!!checked[name]} onChange={()=>{}} style={{width:16,height:16}}/>
           <span style={{fontSize:13}}>{name}</span>
         </div>
-      ))}
+        ));
+      })()}
       <button onClick={submit} disabled={Object.values(checked).every(v=>!v)} style={{width:"100%",marginTop:14,padding:"10px",borderRadius:8,border:"none",background:Object.values(checked).some(v=>v)?C.pu:"#ccc",color:"#fff",fontWeight:700,fontSize:13,cursor:Object.values(checked).some(v=>v)?"pointer":"not-allowed"}}>
         ✅ রিপোর্ট জমা দিন ({Object.values(checked).filter(Boolean).length} জন নির্বাচিত)
       </button>
@@ -2399,7 +2446,7 @@ const RANK_SHRINK_K=4; // এই সংখ্যক পরীক্ষার ফ
 
 // SSC ছাত্রের বিভাগ-cohort key — বিভাগ না জানা থাকলে "অবিভাজিত" আলাদা cohort
 function studentCohortKey(cls,name,studentDepartments={}){
-  if(cls===SSC_CLASS){
+  if(GROUP_CLASSES.includes(cls)){
     const dept=studentDepartments[name];
     return dept?`${cls}__${dept}`:`${cls}__অবিভাজিত`;
   }
@@ -4009,7 +4056,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
     const {byKey}=computeStudentRankings(allRes,studentDepartments,rankPeriod,new Date());
     const rec=byKey[name+"||"+cls];
     if(!rec)return null;
-    const dept=cls===SSC_CLASS?(studentDepartments[name]||null):null;
+    const dept=GROUP_CLASSES.includes(cls)?(studentDepartments[name]||null):null;
     return{
       classRank:rec.classRank,classTotal:rec.classTotal,
       schoolRank:rec.schoolRank,schoolTotal:rec.schoolTotal,
@@ -4093,7 +4140,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
                 ⚠️ সীমিত ডেটা — এই সময়কালে মাত্র {rankInfo.examCount}টি পরীক্ষার ফলাফল আছে, তাই এই র‍্যাংকের নির্ভরযোগ্যতা কম।
               </div>
             )}
-            {cls===SSC_CLASS&&!rankInfo.dept&&(
+            {GROUP_CLASSES.includes(cls)&&!rankInfo.dept&&(
               <div style={{marginTop:6,fontSize:9.5,color:"rgba(255,255,255,0.85)",background:"rgba(0,0,0,0.15)",borderRadius:6,padding:"4px 8px"}}>
                 ℹ️ এই ছাত্রের বিভাগ (বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা) নির্ধারিত নেই, তাই "অবিভাজিত" গ্রুপে র‍্যাংক করা হয়েছে — Students পেজ থেকে বিভাগ নির্ধারণ করুন।
               </div>
@@ -4313,7 +4360,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
             <BehaviorRatingSection profile={profile} updateProfile={updateProfile} currentUser={currentUser}/>
             <div style={{marginTop:16,paddingTop:14,borderTop:`2px dashed ${C.re}30`}}>
               <div style={{fontWeight:700,fontSize:13,color:C.re,marginBottom:10}}>🚫 ক্লাস ফাঁকির রেকর্ড</div>
-              <ClassSkipSection profile={profile} updateProfile={updateProfile} currentUser={currentUser} cls={cls}/>
+              <ClassSkipSection profile={profile} updateProfile={updateProfile} currentUser={currentUser} cls={cls} name={name} studentDepartments={studentDepartments}/>
             </div>
           </div>)}
 
@@ -4481,7 +4528,7 @@ function ExamCommentSection({srP,profile,updateProfile,currentUser,results,name}
 }
 
 /* ══ CLASS SKIP SECTION ══ */
-function ClassSkipSection({profile,updateProfile,currentUser,cls}){
+function ClassSkipSection({profile,updateProfile,currentUser,cls,name="",studentDepartments={}}){
   const skipLog=profile.classSkipLog||[];
   const todayISO=new Date().toISOString().slice(0,10);
   const [skipDate,setSkipDate]=useState(todayISO);
@@ -4489,7 +4536,7 @@ function ClassSkipSection({profile,updateProfile,currentUser,cls}){
   const [skipNote,setSkipNote]=useState("");
   const [filterDate,setFilterDate]=useState("");
 
-  const classSubjects=cls?(SUBJECTS_BY_CLASS[cls]||SUBJECTS):SUBJECTS;
+  const classSubjects=cls?getStudentSubjects(cls,name,studentDepartments):SUBJECTS;
 
   const addSkip=()=>{
     if(!skipSubject)return;
@@ -4955,19 +5002,19 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
 
       <div style={{overflowX:"auto"}}>
         <table>
-          <thead><tr><th>#</th><th>নাম</th><th>শ্রেণি</th>{cls===SSC_CLASS&&<th>বিভাগ</th>}{isAdmin&&<th>বাদ</th>}</tr></thead>
+          <thead><tr><th>#</th><th>নাম</th><th>শ্রেণি</th>{GROUP_CLASSES.includes(cls)&&<th>বিভাগ</th>}{isAdmin&&<th>বাদ</th>}</tr></thead>
           <tbody>
             {list.map((n,i)=>(
               <tr key={i}>
                 <td style={{color:C.mu,fontSize:11}}>{i+1}</td>
                 <td style={{fontWeight:500,color:C.pu,textDecoration:"underline dotted",cursor:"pointer"}} onClick={()=>setSel(n)}>{n}</td>
                 <td>{badge(C.te,cls)}</td>
-                {cls===SSC_CLASS&&(
+                {GROUP_CLASSES.includes(cls)&&(
                   <td>
                     {isAdmin?(
                       <select value={studentDepartments[n]||""} onChange={e=>setDept(n,e.target.value)} style={{fontSize:11,padding:"3px 6px"}}>
                         <option value="">— নির্ধারিত নেই —</option>
-                        {SSC_DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}
+                        {GROUPS.map(d=><option key={d} value={d}>{d}</option>)}
                       </select>
                     ):(studentDepartments[n]?badge(C.am,studentDepartments[n]):<span style={{fontSize:10,color:C.mu}}>—</span>)}
                   </td>
@@ -4979,7 +5026,7 @@ function Students({results,customStudents,setCustomStudents,isAdmin,STUDENTS,stu
           </tbody>
         </table>
       </div>
-      {cls===SSC_CLASS&&<div style={{fontSize:10.5,color:C.mu,marginTop:6}}>ℹ️ বিভাগ (বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা) নির্ধারণ করলে "স্কুল র‍্যাংক (SPI)" নিজ বিভাগের মধ্যেই normalize হবে — ভিন্ন বিভাগের ছাত্রের সাথে সরাসরি তুলনা হবে না।</div>}
+      {GROUP_CLASSES.includes(cls)&&<div style={{fontSize:10.5,color:C.mu,marginTop:6}}>ℹ️ বিভাগ (বিজ্ঞান/মানবিক/ব্যবসায় শিক্ষা) নির্ধারণ করলে "স্কুল র‍্যাংক (SPI)" নিজ বিভাগের মধ্যেই normalize হবে — ভিন্ন বিভাগের ছাত্রের সাথে সরাসরি তুলনা হবে না, এবং শুধুমাত্র প্রাসঙ্গিক বিষয়সমূহ (আবশ্যিক + বিভাগীয়) ফলাফল এন্ট্রি ও রিপোর্টে দেখানো হবে।</div>}
       {isAdmin&&addMsg&&!showAdd&&<div style={{marginTop:8,fontSize:12,color:addMsg.startsWith("✅")?C.gr:C.re,fontWeight:600,textAlign:"center"}}>{addMsg}</div>}
     </Card>
   </div>);
@@ -5690,7 +5737,7 @@ function Teachers({results,lessonPlans,obsData={},setObsData=()=>{},currentUser=
 
 
 /* ══ EXAM ENTRY ══ */
-function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,teacherSubjects={},STUDENTS,studentProfiles={},setStudentProfiles=()=>{}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
+function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,teacherSubjects={},STUDENTS,studentProfiles={},setStudentProfiles=()=>{},studentDepartments={}}){STUDENTS=STUDENTS||DEFAULT_STUDENTS;
   const canSelectTeacher=isAdmin||isRep; // Admin বা Rep উভয়েই যেকোনো শিক্ষক select করতে পারবেন
   const [cls,setCls]=useState("VI");
   const [sub,setSub]=useState((SUBJECTS_BY_CLASS["VI"]||SUBJECTS)[0]);
@@ -5753,8 +5800,16 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     if(!absent[name])setMarks(p=>{const n={...p};delete n[name];return n;});
   };
 
+  // ── বিভাগ (গ্রুপ) অনুযায়ী রোস্টার — নবম/দশম শ্রেণিতে বিষয়টি কোনো নির্দিষ্ট বিভাগের হলে
+  // শুধুমাত্র সেই বিভাগের ছাত্রদেরই তালিকায় দেখানো হয়, বাকিদের নয় ──
+  const subjGroups=groupsOfSubject(sub);
+  const groupFilterActive=GROUP_CLASSES.includes(cls)&&subjGroups.length>0;
+  const rosterAll=STUDENTS[cls]||[];
+  const rosterStudents=groupFilterActive?rosterAll.filter(n=>subjGroups.includes(studentDepartments[n])):rosterAll;
+  const unassignedInClass=GROUP_CLASSES.includes(cls)?rosterAll.filter(n=>!studentDepartments[n]):[];
+
   // লাইভ প্রিভিউ — absent বাদ দিয়ে
-  const presentStudents=STUDENTS[cls].filter(n=>!absent[n]);
+  const presentStudents=rosterStudents.filter(n=>!absent[n]);
   const entered=presentStudents.map(n=>marks[n]).filter(v=>v!==""&&v!==undefined&&v!==null);
   const liveAvg=entered.length?Math.round(entered.reduce((a,b)=>a+parseInt(b),0)/entered.length):null;
   const livePass=entered.filter(v=>parseInt(v)>=passMarks).length;
@@ -5763,7 +5818,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
   const liveAvgPct=liveAvg?Math.round(liveAvg/fullMarks*100):null;
 
   // ── ৫০%-এর নিচে নম্বর পাওয়া ছাত্রদের জন্য কারণ বাধ্যতামূলক ──
-  const pendingLowScoreReasons=STUDENTS[cls].filter(name=>{
+  const pendingLowScoreReasons=rosterStudents.filter(name=>{
     if(absent[name]||!marks[name])return false;
     const m=parseInt(marks[name]);
     if(isNaN(m))return false;
@@ -5775,7 +5830,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     if(pendingLowScoreReasons.length>0)return; // নিরাপত্তা-চেক — বাটন এমনিতেই disabled থাকে
     const nowISO=new Date().toISOString();
     const trimName=examName.trim();
-    const entries=STUDENTS[cls]
+    const entries=rosterStudents
       .filter(name=>!absent[name])
       .map(name=>{
         const m=marks[name]!==""&&marks[name]!==undefined?parseInt(marks[name])||0:0;
@@ -5792,7 +5847,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
         };
       });
     // absent রেকর্ড আলাদাভাবে (KPI হিসাবে বাদ যাবে)
-    const absentEntries=STUDENTS[cls]
+    const absentEntries=rosterStudents
       .filter(name=>absent[name])
       .map(name=>({
         name,cls,subject:sub,examType:ex,
@@ -5844,7 +5899,19 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     <Card>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
         <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>শ্রেণি</div><select value={cls} onChange={e=>handleClsChange(e.target.value)}>{Object.keys(STUDENTS).map(c=><option key={c} value={c}>শ্রেণি {c}</option>)}</select></div>
-        <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>বিষয়{resolveTeacherSubjects(teacherSubjects,teacher)?.length?" (আপনার জন্য নির্ধারিত)":""}</div><select value={sub} onChange={e=>setSub(e.target.value)}>{allowedSubjects.map(s=><option key={s}>{s}</option>)}</select></div>
+        <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>বিষয়{resolveTeacherSubjects(teacherSubjects,teacher)?.length?" (আপনার জন্য নির্ধারিত)":""}</div>
+          <select value={sub} onChange={e=>setSub(e.target.value)}>
+            {GROUP_CLASSES.includes(cls)?(<>
+              <optgroup label="আবশ্যিক বিষয়">
+                {allowedSubjects.filter(s=>!groupsOfSubject(s).length).map(s=><option key={s}>{s}</option>)}
+              </optgroup>
+              {GROUPS.map(g=>{
+                const opts=allowedSubjects.filter(s=>GROUP_SUBJECTS[g].includes(s));
+                return opts.length?(<optgroup key={g} label={`বিভাগীয় বিষয় — ${g}`}>{opts.map(s=><option key={s}>{s}</option>)}</optgroup>):null;
+              })}
+            </>):allowedSubjects.map(s=><option key={s}>{s}</option>)}
+          </select>
+        </div>
         <div><div style={{fontSize:11,color:C.mu,marginBottom:4}}>পরীক্ষার ধরন</div><select value={ex} onChange={e=>setEx(e.target.value)}>{exList.map(e=><option key={e}>{e}</option>)}</select></div>
         <div>
           <div style={{fontSize:11,color:C.mu,marginBottom:4}}>শিক্ষক</div>
@@ -5893,6 +5960,19 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
         💡 যে ছাত্র পরীক্ষায় <strong>অনুপস্থিত</strong> ছিল তার পাশের <strong>অনু.</strong> বাটনে ক্লিক করুন — সে KPI ও ফলাফল হিসাব থেকে বাদ পড়বে
       </div>
 
+      {/* বিভাগ (গ্রুপ) ফিল্টার নোট — শুধুমাত্র নবম/দশম শ্রেণিতে বিভাগীয় বিষয়ের ক্ষেত্রে */}
+      {groupFilterActive&&(
+        <div style={{background:C.puL,border:`1px solid ${C.pu}40`,borderRadius:8,padding:"7px 11px",marginBottom:10,fontSize:12,color:C.pu}}>
+          🎓 <strong>{sub}</strong> শুধুমাত্র <strong>{subjGroups.join(" / ")}</strong> বিভাগের ছাত্রদের বিষয় — তাই নিচে শুধু এই বিভাগের/এই বিভাগগুলোর <strong>{rosterStudents.length} জন</strong> ছাত্র দেখানো হচ্ছে।
+          {unassignedInClass.length>0&&<span> ⚠️ শ্রেণি {cls}-এ <strong>{unassignedInClass.length} জন</strong> ছাত্রের বিভাগ এখনো নির্ধারণ করা হয়নি (ছাত্র ব্যবস্থাপনা পেজ থেকে ঠিক করুন) — তারা এই তালিকায় নেই।</span>}
+        </div>
+      )}
+      {GROUP_CLASSES.includes(cls)&&!subjGroups.length&&unassignedInClass.length>0&&(
+        <div style={{background:"#f3f0ff",border:`1px solid ${C.pu}30`,borderRadius:8,padding:"7px 11px",marginBottom:10,fontSize:11.5,color:C.mu}}>
+          ℹ️ শ্রেণি {cls}-এ <strong>{unassignedInClass.length} জন</strong> ছাত্রের বিভাগ এখনো নির্ধারণ করা হয়নি। আবশ্যিক বিষয় হওয়ায় তারা এই তালিকায় আছে, তবে বিভাগীয় বিষয়ে নম্বর দিতে হলে আগে তাদের বিভাগ ঠিক করুন।
+        </div>
+      )}
+
       {/* লাইভ প্রিভিউ */}
       {(entered.length>0||liveAbsent>0)&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:6,marginBottom:10}}>
@@ -5922,7 +6002,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
       <div style={{overflowX:"auto"}}><table>
         <thead><tr><th>#</th><th>নাম</th><th>অনু.</th><th>নম্বর /{fullMarks}</th><th>%</th><th>গ্রেড</th></tr></thead>
         <tbody>
-          {STUDENTS[cls].map((name,i)=>{
+          {rosterStudents.map((name,i)=>{
             const isAbs=!!absent[name];
             const m=parseInt(marks[name]||"");
             const pct=(!isAbs&&marks[name])?Math.round(m/fullMarks*100):null;
@@ -11540,6 +11620,7 @@ function App(){
 
   // ── DATA STATE ──
   const [page,setPage]=useState("dashboard");
+  const [navDepth,setNavDepth]=useState(0); // ব্রাউজার হিস্টোরির গভীরতা — হার্ডওয়্যার/ব্রাউজার ব্যাক বাটন কতবার চাপলে অ্যাপের মধ্যেই থাকা যাবে তা ট্র্যাক করে
   const [results,setResults]=useState({});
   const [lessonPlans,setLessonPlans]=useState({});
   const [obsData,setObsData]=useState({});
@@ -11569,6 +11650,26 @@ function App(){
     ALL_COORD_TASK_IDS.forEach(id=>{s[id]={done:false,doneAt:null};});
     return s;
   });
+
+  // ── ব্রাউজার/হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলিং ──
+  // সমস্যা: আগে অ্যাপের পেজ-পরিবর্তন শুধু React state দিয়ে হতো, ব্রাউজারের history-তে কোনো এন্ট্রি
+  // যোগ হতো না। ফলে ফোনের/ব্রাউজারের ব্যাক বাটনে চাপ দিলে সরাসরি অ্যাপ থেকেই বেরিয়ে যেত।
+  // সমাধান: প্রতিটি পেজ-পরিবর্তনে history.pushState() করা হয়, আর popstate ইভেন্ট শুনে (হার্ডওয়্যার
+  // ব্যাক চাপলে) অ্যাপের ভেতরের আগের পেজে ফেরানো হয় — অ্যাপ থেকে বের করে দেওয়ার বদলে।
+  useEffect(()=>{
+    if(!window.history.state||!window.history.state.haisPage){
+      window.history.replaceState({haisPage:"dashboard",haisDepth:0},"");
+    }
+    const onPopState=(e)=>{
+      const st=e.state;
+      if(st&&st.haisPage){
+        setPage(st.haisPage);
+        setNavDepth(st.haisDepth||0);
+      }
+    };
+    window.addEventListener("popstate",onPopState);
+    return ()=>window.removeEventListener("popstate",onPopState);
+  },[]);
 
   // ── IndexedDB থেকে প্রাথমিক লোড (app শুরুতে একবার) ──
   useEffect(()=>{
@@ -11905,7 +12006,12 @@ function App(){
     return()=>clearTimeout(t);
   },[results,lessonPlans,obsData,deadlines,dlSubmissions,teacherSubjects,customStudents,customTeachers,removedTeachers,studentProfiles,studentDepartments,weeklyTargets,targetFulfillments,selfReports,dbReady,fbLoaded]);
 
-  const handlePageChange=(newPage)=>{
+  const handlePageChange=(newPage,opts={})=>{
+    if(!opts.isPopState&&newPage!==page){
+      const newDepth=navDepth+1;
+      window.history.pushState({haisPage:newPage,haisDepth:newDepth},"");
+      setNavDepth(newDepth);
+    }
     setPage(newPage);
     setShowMoreSheet(false);
     if(currentUser!==ADMIN_TEACHER)return;
@@ -11921,6 +12027,12 @@ function App(){
       });
       return updated;
     });
+  };
+
+  // ── পেছনে ফেরা: বর্তমান পেজের ঠিক আগের পেজে ফিরে যাওয়া (ব্রাউজার history.back() ব্যবহার করে,
+  // যাতে হেডারের ← বাটন আর ফোনের হার্ডওয়্যার ব্যাক বাটন — দুটোই একই, সামঞ্জস্যপূর্ণভাবে কাজ করে) ──
+  const goBack=()=>{
+    if(navDepth>0)window.history.back();
   };
 
   const handleCoordToggle=(taskId)=>{
@@ -12209,7 +12321,7 @@ function App(){
     setShowExportMenu(false);
   };
 
-  if(!dbReady)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS v7.4 লোড হচ্ছে...</div><div style={{color:"rgba(255,255,255,0.7)",fontSize:12}}>IndexedDB সংযোগ স্থাপন হচ্ছে</div></div>);
+  if(!dbReady)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:"#fff",fontWeight:700,fontSize:18}}>HAIS v7.3 লোড হচ্ছে...</div><div style={{color:"rgba(255,255,255,0.7)",fontSize:12}}>IndexedDB সংযোগ স্থাপন হচ্ছে</div></div>);
   if(!currentUser)return <LoginScreen onLogin={handleLogin}/>;
   if(!fbLoaded)return(<div style={{minHeight:"100vh",background:"linear-gradient(135deg,#5344b5,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
     <div style={{fontSize:44}}>🏫</div>
@@ -12275,7 +12387,7 @@ function App(){
         <div className="app-sidebar">
           <div style={{padding:"18px 16px 14px",borderBottom:`1px solid ${C.bd}`}}>
             <div style={{fontWeight:800,fontSize:16,color:C.pu}}>🏫 HAIS</div>
-            <div style={{fontSize:10.5,color:C.mu,marginTop:2}}>Heritage Public School • v7.4</div>
+            <div style={{fontSize:10.5,color:C.mu,marginTop:2}}>Heritage Public School • v7.3</div>
           </div>
           <div style={{flex:1,paddingBottom:12}}>
             {visiblePages.map(p=>(<React.Fragment key={p.id}>
@@ -12287,7 +12399,15 @@ function App(){
 
         <div className="app-main">
           <div style={{background:C.pu,color:"#fff",padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 10px #5344b540"}}>
-            <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.4</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {navDepth>0&&(
+                <button onClick={goBack} title="পেছনে যান" aria-label="পেছনে যান"
+                  style={{width:32,height:32,borderRadius:"50%",border:"1px solid #ffffff45",background:"rgba(255,255,255,0.10)",color:"#fff",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.22)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.10)"}>←</button>
+              )}
+              <div><div style={{fontWeight:700,fontSize:15}}>🏫 HAIS</div><div style={{fontSize:10,opacity:0.8}}>Heritage Public School • v7.3</div></div>
+            </div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <div onClick={()=>setShowUserProfile(true)} style={{textAlign:"right",marginRight:4,cursor:"pointer",padding:"4px 8px",borderRadius:8,border:"1px solid #ffffff30",background:"rgba(255,255,255,0.08)",transition:"background 0.15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
@@ -12320,13 +12440,13 @@ function App(){
       {page==="dashboard"&&<Dashboard results={results} lessonPlans={lessonPlans} onExport={exportJSON} STUDENTS={STUDENTS} obsData={obsData} deadlines={deadlines} dlSubmissions={dlSubmissions} lastExportTs={lastExportTs} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} currentUser={currentUser} examSchedule={examSchedule} setExamSchedule={setExamSchedule} isAdmin={ADMIN_TEACHERS.includes(currentUser)} teacherSubjects={teacherSubjects} dailyRoutine={dailyRoutine} setDailyRoutine={setDailyRoutine} meetingAgenda={meetingAgenda} setMeetingAgenda={setMeetingAgenda} specialTasks={specialTasks} setSpecialTasks={setSpecialTasks} routineSubtasks={routineSubtasks} setRoutineSubtasks={setRoutineSubtasks} lastCarryDate={lastCarryDate} setLastCarryDate={setLastCarryDate}/>}
       {page==="students" &&<Students results={results} customStudents={customStudents} setCustomStudents={setCustomStudents} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} setStudentDepartments={setStudentDepartments} currentUser={currentUser} obsData={obsData}/>}
       {page==="teachers" &&(ADMIN_TEACHERS.includes(currentUser)?<Teachers results={results} lessonPlans={lessonPlans} obsData={obsData} setObsData={setObsData} currentUser={currentUser} teacherSubjects={teacherSubjects} setTeacherSubjects={setTeacherSubjects} isAdmin={true} customTeachers={customTeachers} setCustomTeachers={setCustomTeachers} removedTeachers={removedTeachers} setRemovedTeachers={setRemovedTeachers} STUDENTS={STUDENTS} examSchedule={examSchedule}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
-      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
+      {page==="exam"     &&<ExamEntry results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} isRep={currentUser===REP_TEACHER} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments}/>}
       {page==="results"  &&<Results results={results} setResults={setResults} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles} studentDepartments={studentDepartments} obsData={obsData}/>}
       {page==="ssctarget" &&<SSCTarget results={results} STUDENTS={STUDENTS} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} weeklyTargets={weeklyTargets} setWeeklyTargets={setWeeklyTargets} targetFulfillments={targetFulfillments} setTargetFulfillments={setTargetFulfillments} selfReports={selfReports} setSelfReports={setSelfReports} studentProfiles={studentProfiles} setStudentProfiles={setStudentProfiles}/>}
       {page==="lesson"   &&<LessonPlans lessonPlans={lessonPlans} setLessonPlans={setLessonPlans} lpRole={lpRole} setLpRole={setLpRole} teacherSubjects={teacherSubjects} STUDENTS={STUDENTS} examSchedule={examSchedule} setExamSchedule={setExamSchedule}/>}
       {page==="observe"  &&(ADMIN_TEACHERS.includes(currentUser)?<TeacherObservation obsData={obsData} setObsData={setObsData} STUDENTS={STUDENTS}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="peer_obs" &&<PeerObservation obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS}/>}
-      {page==="homework_report" &&<HomeworkReport obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS}/>}
+      {page==="homework_report" &&<HomeworkReport obsData={obsData} setObsData={setObsData} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)} STUDENTS={STUDENTS} studentDepartments={studentDepartments}/>}
       {page==="kpi"      &&(ADMIN_TEACHERS.includes(currentUser)?<KPI results={results} lessonPlans={lessonPlans} obsData={obsData} dlSubmissions={dlSubmissions} deadlines={deadlines} STUDENTS={STUDENTS} examSchedule={examSchedule} teacherSubjects={teacherSubjects}/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
       {page==="events"      &&<UpcomingEvents deadlines={deadlines} setDeadlines={setDeadlines} dlSubmissions={dlSubmissions} setDlSubmissions={setDlSubmissions} currentUser={currentUser} isAdmin={ADMIN_TEACHERS.includes(currentUser)}/>}
       {page==="arch"        &&(ADMIN_TEACHERS.includes(currentUser)?<Architecture/>:<div style={{textAlign:"center",padding:40,color:C.re,fontWeight:700}}>🔒 এই পেজটি শুধুমাত্র অ্যাডমিনের জন্য</div>)}
@@ -12374,7 +12494,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 <script>
 /* ═══ HAIS PWA Manager v7.0 ═══ */
-const HAIS_VERSION='7.4';
+const HAIS_VERSION='7.3';
 let haisDeferredPrompt=null;
 
 /* ── Service Worker নিবন্ধন (Auto-Update মোড) ──
