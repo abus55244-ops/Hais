@@ -217,10 +217,6 @@ const HAISDB={
 };
 
 /* ── Firebase helpers ── */
-const fbSave=async(data)=>{
-  if(!window.__fbReady)return false;
-  try{await window.__fbDB.ref(FB_PATH).set(data);return true;}catch(e){console.error("FB save:",e);return false;}
-};
 /* partial আপডেট — শুধু যেসব top-level key পরিবর্তন হয়েছে সেগুলোই পাঠায়,
    বাকি ব্যবহারকারীর ডিভাইসে থাকা stale ডেটা দিয়ে বাকি ফিল্ড ওভাররাইট হবে না */
 const fbUpdate=async(partial)=>{
@@ -518,20 +514,6 @@ const mergeObjState=(oldObj,newObj)=>{
   return{...oldObj,...newObj};
 };
 
-const fbLoad=async()=>{
-  if(!window.__fbReady)return null;
-  try{const s=await window.__fbDB.ref(FB_PATH).once("value");return s.exists()?s.val():null;}catch(e){return null;}
-};
-/* realtime listener — অন্য কোনো ডিভাইস ডেটা পরিবর্তন করলে সাথে সাথে এই কলব্যাক চলবে */
-const fbListen=(cb)=>{
-  if(!window.__fbReady){setTimeout(()=>cb(null),500);return ()=>{};}
-  const ref=window.__fbDB.ref(FB_PATH);
-  const handler=snap=>{cb(snap.exists()?snap.val():null);};
-  ref.on("value",handler);
-  return ()=>ref.off("value",handler);
-};
-
-/* ── IndexedDB থেকে একবারে সব পড়া ── */
 /* ── IndexedDB থেকে একবারে সব পড়া ── */
 const loadFromIDB=async()=>{
   try{
@@ -663,6 +645,9 @@ const groupsOfSubject=(subject)=>GROUPS.filter(g=>GROUP_SUBJECTS[g].includes(sub
 const EXAM_LOWER=["Chapter Final","First Term","Second Term","Third Term"];
 const EXAM_UPPER=["Chapter Final","Fortnightly Exam","Half-Yearly Exam","Annual Exam"];
 const EXAM_ORDER={"Chapter Final":1,"First Term":2,"Fortnightly Exam":2,"Second Term":3,"Half-Yearly Exam":3,"Third Term":4,"Annual Exam":4};
+/* কোনো পরীক্ষার ধরন EXAM_ORDER-এ না থাকলে (ভবিষ্যতে নতুন পরীক্ষা যোগ হলে) সেটা যেন
+   ভুলবশত সবার শুরুতে না বসে যায় — তাই তালিকার সর্বোচ্চ ক্রম নম্বরের পরে বসানো হয় */
+const getExamOrder=(ex)=>EXAM_ORDER[ex]??(Math.max(...Object.values(EXAM_ORDER))+1);
 
 const C={pu:"#5344b5",puL:"#ede9fd",te:"#0f6e56",teL:"#e1f5ee",co:"#993c1d",coL:"#faece7",am:"#854f0b",amL:"#faeeda",re:"#a32d2d",reL:"#fcebeb",gr:"#3b6d11",grL:"#eaf3de",bd:"rgba(0,0,0,0.11)",bg:"#f0eeff",cd:"#fff",tx:"#1a1a2e",mu:"#6b6b8a"};
 
@@ -2433,7 +2418,7 @@ function computeGroupFactors(allRes, groupKeyFn){
     if(!groupStats[g])groupStats[g]={impSum:0,impCount:0,weakSum:0,consSum:0,consCount:0};
     const st=groupStats[g];
     if(entries.length>=2){
-      const sorted=[...entries].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+      const sorted=[...entries].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
       const first=sorted[0].marks, last=sorted[sorted.length-1].marks;
       const imp=last-first;
       let base=0;
@@ -2564,7 +2549,10 @@ function computeStudentRankings(allRes,studentDepartments={},period="yearly",ref
     const cst=cohortStats[s.cohort];
     s.cohortN=cst.n;
     s.confidence=Math.min(1,s.count/RANK_SHRINK_K);
-    s.spi=cst.sd>0.01?(s.avg-cst.mean)/cst.sd:0;
+    const rawSpi=cst.sd>0.01?(s.avg-cst.mean)/cst.sd:0;
+    // FIX: কম পরীক্ষার (কম স্যাম্পল) ছাত্রের SPI যেন কোহোর্ট-গড়ের (０)দিকে shrink হয় —
+    // নাহলে ১টা মাত্র পরীক্ষার ফলাফল দিয়েই কেউ চরম #১ বা সবার শেষ র‍্যাংকে চলে যেতে পারতো
+    s.spi=rawSpi*s.confidence;
   });
 
   const clsGroups={};
@@ -2649,7 +2637,7 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
     const impF=clampFactor(subjFactor(subject,"imp")*clsFactor(cls,"imp"),0.65,1.55);
     const weakF=clampFactor(subjFactor(subject,"weak")*clsFactor(cls,"weak"),0.65,1.55);
     const consF=clampFactor(subjFactor(subject,"cons")*clsFactor(cls,"cons"),0.65,1.55);
-    const sorted=[...entries].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+    const sorted=[...entries].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
     const first=sorted[0].marks, last=sorted[sorted.length-1].marks;
     const imp=last-first;
 
@@ -2886,76 +2874,6 @@ function calcKPI(teacher, allRes, lessonPlans, obsData={}, deadlines=[], dlSubmi
 }
 
 /* ══ DASHBOARD ══ */
-
-/* টপ পারফর্মার — শ্রেণিভিত্তিক সেরা ৩ ছাত্র + ট্রেন্ড অ্যারো */
-function TopStudentPerformers({STUDENTS,allRes}){
-  const [selCls,setSelCls]=useState("all");
-  const classes=Object.keys(STUDENTS);
-
-  const rows=useMemo(()=>{
-    const allStudents=Object.entries(STUDENTS).flatMap(([cls,names])=>names.map(n=>({name:n,cls})));
-    return allStudents.map(({name,cls})=>{
-      const sr=allRes.filter(r=>r.name===name&&!r.absent&&r.marks!=null);
-      if(!sr.length)return null;
-      const avg=Math.round(sr.reduce((a,b)=>a+(b.marks/(b.fullMarks||100)*100),0)/sr.length);
-      // ট্রেন্ড: সর্বশেষ পরীক্ষার নম্বর - প্রথম পরীক্ষার নম্বর (% হিসেবে)
-      const sorted=[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
-      const first=Math.round(sorted[0].marks/(sorted[0].fullMarks||100)*100);
-      const last=Math.round(sorted[sorted.length-1].marks/(sorted[sorted.length-1].fullMarks||100)*100);
-      const trend=sorted.length>=2?last-first:null;
-      const [grade,gc]=getGrade(avg,100,33);
-      return{name,cls,avg,trend,grade,gc,count:sr.length};
-    }).filter(Boolean);
-  },[allRes,STUDENTS]);
-
-  const filtered=selCls==="all"?rows:rows.filter(r=>r.cls===selCls);
-  const top=filtered.sort((a,b)=>b.avg-a.avg).slice(0,5);
-
-  if(!rows.length)return(<div style={{fontSize:12,color:C.mu,textAlign:"center",padding:12}}>এখনো কোনো ফলাফল নেই</div>);
-
-  const trendIcon=(t)=>{
-    if(t===null)return<span style={{fontSize:11,color:C.mu}}>—</span>;
-    if(t>5)return<span style={{fontSize:12,fontWeight:700,color:C.gr}}>▲{t}</span>;
-    if(t>0)return<span style={{fontSize:12,fontWeight:700,color:"#7bc47b"}}>↗{t}</span>;
-    if(t===0)return<span style={{fontSize:12,color:C.mu}}>→</span>;
-    if(t>-5)return<span style={{fontSize:12,fontWeight:700,color:C.co}}>↘{Math.abs(t)}</span>;
-    return<span style={{fontSize:12,fontWeight:700,color:C.re}}>▼{Math.abs(t)}</span>;
-  };
-
-  return(<div>
-    {/* শ্রেণি ফিল্টার */}
-    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
-      <button onClick={()=>setSelCls("all")} style={{padding:"3px 10px",borderRadius:14,border:`1px solid ${selCls==="all"?C.pu:C.bd}`,background:selCls==="all"?C.puL:"transparent",color:selCls==="all"?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:selCls==="all"?700:400}}>সব</button>
-      {classes.map(cls=>(
-        <button key={cls} onClick={()=>setSelCls(cls)} style={{padding:"3px 10px",borderRadius:14,border:`1px solid ${selCls===cls?C.pu:C.bd}`,background:selCls===cls?C.puL:"transparent",color:selCls===cls?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:selCls===cls?700:400}}>{cls}</button>
-      ))}
-    </div>
-    {/* তালিকা */}
-    {top.length===0&&<div style={{fontSize:12,color:C.mu,textAlign:"center",padding:8}}>এই শ্রেণিতে ডেটা নেই</div>}
-    {top.map((s,i)=>(
-      <div key={s.name+s.cls} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 6px",borderBottom:`1px solid ${C.bd}`,borderRadius:i===0?8:0,background:i===0?"linear-gradient(90deg,#ede9fd55,transparent)":"transparent"}}>
-        {/* র‍্যাংক */}
-        <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,
-          background:i===0?"#ffd700":i===1?"#e8e8e8":i===2?"#cd7f32":C.puL,
-          color:i===0?"#7a5c00":i===1?"#666":i===2?"#7a3d00":C.pu,flexShrink:0}}>
-          {i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}
-        </div>
-        {/* নাম ও শ্রেণি */}
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-          <div style={{fontSize:10,color:C.mu}}>শ্রেণি {s.cls} • {s.count}টি পরীক্ষা</div>
-        </div>
-        {/* ট্রেন্ড অ্যারো */}
-        <div style={{minWidth:32,textAlign:"center"}}>{trendIcon(s.trend)}</div>
-        {/* গড় স্কোর */}
-        <div style={{textAlign:"right",minWidth:40}}>
-          <div style={{fontWeight:800,fontSize:14,color:s.gc}}>{s.avg}%</div>
-          {badge(s.gc,s.grade)}
-        </div>
-      </div>
-    ))}
-  </div>);
-}
 
 /* স্কুলের সামগ্রিক পরীক্ষাভিত্তিক ট্রেন্ড প্যানেল — অ্যানালিটিক্যাল লাইন-এরিয়া চার্ট */
 function SchoolTrendPanel({allRes}){
@@ -3437,7 +3355,7 @@ function AtRiskStudentsCard({STUDENTS,allRes}){
     const toPct=r=>Math.round(r.marks/(r.fullMarks||100)*100);
     const failCount=srP.filter(r=>toPct(r)<(r.passMarks||33)).length;
     const lowCount=srP.filter(r=>toPct(r)<40).length;
-    const sorted=[...srP].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+    const sorted=[...srP].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
     const dropping=sorted.length>=2&&toPct(sorted[sorted.length-1])<toPct(sorted[0])-10;
     const avg=srP.length?Math.round(srP.reduce((a,b)=>a+toPct(b),0)/srP.length):0;
     if(failCount>=2||lowCount>=3||dropping) return{name,cls,failCount,avg,dropping,reason:failCount>=2?"বহু বিষয়ে ফেল":dropping?"নম্বর কমছে":"ধারাবাহিক দুর্বল"};
@@ -3593,7 +3511,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
     const rec=monthRankInfo.byKey[name+"||"+cls];
     if(!rec)return null;
     const sr=monthRes.filter(r=>r.name===name&&r.cls===cls&&!r.absent&&r.marks!=null);
-    const sorted2=[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+    const sorted2=[...sr].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
     const trend2=sorted2.length>=2?Math.round(sorted2[sorted2.length-1].marks/(sorted2[sorted2.length-1].fullMarks||100)*100)-Math.round(sorted2[0].marks/(sorted2[0].fullMarks||100)*100):0;
     const [grade2,gc2]=getGrade(Math.round(rec.avg),100,33);
     return{name,cls,avg:Math.round(rec.avg),spi:rec.spi,trend:trend2,grade:grade2,gc:gc2,count:rec.count};
@@ -3801,7 +3719,7 @@ function Dashboard({results,lessonPlans,onExport,STUDENTS,obsData={},deadlines=[
         const rec=yearRankInfo.byKey[name+"||"+cls];
         if(!rec)return null;
         const sr=yearRes.filter(r=>r.name===name&&r.cls===cls&&!r.absent&&r.marks!=null);
-        const sorted2=[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+        const sorted2=[...sr].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
         const trend2=sorted2.length>=2?Math.round(sorted2[sorted2.length-1].marks/(sorted2[sorted2.length-1].fullMarks||100)*100)-Math.round(sorted2[0].marks/(sorted2[0].fullMarks||100)*100):0;
         const [grade2,gc2]=getGrade(Math.round(rec.avg),100,33);
         return{name,cls,avg:Math.round(rec.avg),spi:rec.spi,trend:trend2,grade:grade2,gc:gc2,count:rec.count};
@@ -4103,7 +4021,7 @@ function StudentProfile({name,cls,results,onClose,studentProfiles,setStudentProf
     const worstM=subR.reduce((a,b)=>((b.marks/(b.fullMarks||100))<(a.marks/(a.fullMarks||100)))?b:a);
     const subPass=subR.filter(r=>r.marks>=(r.passMarks||33)).length;
     const [,subGC]=getGrade(avgM,100,33);
-    const sorted=[...subR].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+    const sorted=[...subR].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
     const sparkPts=sorted.map(r=>({label:r.examType.split(" ")[0],v:Math.round(r.marks/(r.fullMarks||100)*100)}));
     const trend=sparkPts.length>=2?sparkPts[sparkPts.length-1].v-sparkPts[0].v:null;
     return{sub,subR,avgM,bestM,worstM,subPass,subGC,sparkPts,trend,count:subR.length};
@@ -5940,8 +5858,17 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
     return pct<50&&!(lowScoreReasons[name]||"").trim();
   });
 
+  // ── FIX: পূর্ণ নম্বরের চেয়ে বেশি বা ঋণাত্মক নম্বর দিলে যেন সেভ না হয় (আগে HTML max attribute
+  // ছিল কিন্তু সেটা টাইপ করা মান আটকাতো না, তাই ভুল নম্বর সরাসরি Firebase-এ সেভ হয়ে যেত) ──
+  const invalidMarksEntries=rosterStudents.filter(name=>{
+    if(absent[name]||marks[name]===""||marks[name]===undefined)return false;
+    const m=parseInt(marks[name]);
+    return isNaN(m)||m<0||m>fullMarks;
+  });
+
   const save=async()=>{
     if(pendingLowScoreReasons.length>0)return; // নিরাপত্তা-চেক — বাটন এমনিতেই disabled থাকে
+    if(invalidMarksEntries.length>0)return; // নিরাপত্তা-চেক — বাটন এমনিতেই disabled থাকে
     const nowISO=new Date().toISOString();
     const trimName=examName.trim();
     const entries=rosterStudents
@@ -5954,7 +5881,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
           examName:trimName,examDate:examDate.trim(),
           marks:m,
           fullMarks,passMarks,
-          examOrder:EXAM_ORDER[ex]||1,
+          examOrder:getExamOrder(ex),
           teacher,absent:false,savedAt:nowISO,
           // ── কম নম্বরের কারণ (৫০%-এর নিচে হলে বাধ্যতামূলকভাবে নেওয়া হয়েছে) ──
           ...(isLow?{lowScoreReason:(lowScoreReasons[name]||"").trim()}:{}),
@@ -5967,7 +5894,7 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
         name,cls,subject:sub,examType:ex,
         examName:trimName,examDate:examDate.trim(),
         marks:null,fullMarks,passMarks,
-        examOrder:EXAM_ORDER[ex]||1,
+        examOrder:getExamOrder(ex),
         teacher,absent:true,savedAt:nowISO
       }));
     const allEntries=[...entries,...absentEntries];
@@ -6165,13 +6092,18 @@ function ExamEntry({results,setResults,currentUser="",isAdmin=true,isRep=false,t
         </tbody>
       </table></div>
 
+      {invalidMarksEntries.length>0&&(
+        <div style={{background:"#fff5f5",border:`1px solid ${C.re}40`,borderRadius:8,padding:"8px 12px",marginTop:10,fontSize:12,color:C.re,fontWeight:700}}>
+          🔒 পূর্ণ নম্বরের ({fullMarks}) চেয়ে বেশি বা ঋণাত্মক নম্বর দেওয়া যাবে না: {invalidMarksEntries.join(", ")}
+        </div>
+      )}
       {pendingLowScoreReasons.length>0&&(
         <div style={{background:"#fff5f5",border:`1px solid ${C.re}40`,borderRadius:8,padding:"8px 12px",marginTop:10,fontSize:12,color:C.re,fontWeight:700}}>
           🔒 সংরক্ষণ করার আগে নিচের {pendingLowScoreReasons.length} জনের কম নম্বরের কারণ লিখুন: {pendingLowScoreReasons.join(", ")}
         </div>
       )}
       <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <button onClick={save} disabled={pendingLowScoreReasons.length>0} style={{padding:"9px 20px",borderRadius:8,border:"none",background:pendingLowScoreReasons.length>0?"#ccc":C.pu,color:"#fff",cursor:pendingLowScoreReasons.length>0?"not-allowed":"pointer",fontWeight:700,fontSize:14}}>{pendingLowScoreReasons.length>0?"🔒 কারণ পূরণ করুন":"✅ সংরক্ষণ করুন"}</button>
+        <button onClick={save} disabled={pendingLowScoreReasons.length>0||invalidMarksEntries.length>0} style={{padding:"9px 20px",borderRadius:8,border:"none",background:(pendingLowScoreReasons.length>0||invalidMarksEntries.length>0)?"#ccc":C.pu,color:"#fff",cursor:(pendingLowScoreReasons.length>0||invalidMarksEntries.length>0)?"not-allowed":"pointer",fontWeight:700,fontSize:14}}>{invalidMarksEntries.length>0?"🔒 ভুল নম্বর ঠিক করুন":pendingLowScoreReasons.length>0?"🔒 কারণ পূরণ করুন":"✅ সংরক্ষণ করুন"}</button>
         {msg&&<span style={{color:C.gr,fontWeight:700,fontSize:13}}>{msg}</span>}
       </div>
     </Card>
@@ -6221,13 +6153,24 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
     if(!examEditGroup)return;
     const {cls,subject,examType,examName}=examEditGroup;
     const nowISO=new Date().toISOString();
+    // FIX: UI-তে লাল বর্ডার দিয়ে ভুল নম্বর দেখানো হতো কিন্তু সেভ ফাংশন সেটা আটকাতো না —
+    // এখন পূর্ণ নম্বরের সীমা বের করে বাস্তবেও আটকানো হচ্ছে
+    const clsResults=results[cls]||[];
+    const sampleRec=clsResults.find(r=>r.subject===subject&&r.examType===examType&&(examName?r.examName===examName:!r.examName));
+    const fullMarksLimit=sampleRec?.fullMarks||100;
+    const outOfRange=Object.entries(bulkMarks).some(([name,val])=>{
+      if(val===""||val===undefined||val==="অনুপস্থিত")return false;
+      const m=parseInt(val);
+      return isNaN(m)||m<0||m>fullMarksLimit;
+    });
+    if(outOfRange){setDelMsg(`❌ পূর্ণ নম্বরের (${fullMarksLimit}) চেয়ে বেশি বা ঋণাত্মক নম্বর আছে — সেভ হয়নি`);setTimeout(()=>setDelMsg(""),4000);return;}
     let updatedEntries=[];
     setResults(prev=>{
       const clsArr=[...(prev[cls]||[])];
       Object.entries(bulkMarks).forEach(([name,val])=>{
         if(val==="অনুপস্থিত")return;
         const m=parseInt(val);
-        if(isNaN(m))return;
+        if(isNaN(m)||m<0||m>fullMarksLimit)return;
         const idx=clsArr.findIndex(r=>r.name===name&&r.subject===subject&&r.examType===examType&&(examName?r.examName===examName:!r.examName)&&r.cls===cls);
         if(idx>=0){clsArr[idx]={...clsArr[idx],marks:m,absent:false,savedAt:nowISO};updatedEntries.push(clsArr[idx]);}
       });
@@ -6271,14 +6214,14 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
   const subAvg=SUBJECTS.map(sub=>{const sr=filtered.filter(r=>r.subject===sub&&!r.absent&&r.marks!=null);const tP=r=>Math.round(r.marks/(r.fullMarks||100)*100);return{label:sub.slice(0,4),value:sr.length?Math.round(sr.reduce((a,b)=>a+tP(b),0)/sr.length):0,color:C.te};}).filter(d=>d.value>0);
   const clsAvg=Object.keys(STUDENTS).map(cls=>{const cr=filtered.filter(r=>r.cls===cls&&!r.absent&&r.marks!=null);const tP=r=>Math.round(r.marks/(r.fullMarks||100)*100);return{label:cls,value:cr.length?Math.round(cr.reduce((a,b)=>a+tP(b),0)/cr.length):0,color:C.pu};}).filter(d=>d.value>0);
   const allStudents=[...new Set(allRes.map(r=>r.name))];
-  const studentGrowth=(name,subject)=>{const sr=allRes.filter(r=>r.name===name&&!r.absent&&(subject==="সব"||r.subject===subject));if(sr.length<2)return[];return[...sr].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1)).map(r=>({label:r.examType.split(" ")[0],v:r.marks}));};
+  const studentGrowth=(name,subject)=>{const sr=allRes.filter(r=>r.name===name&&!r.absent&&(subject==="সব"||r.subject===subject));if(sr.length<2)return[];return[...sr].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99)).map(r=>({label:r.examType.split(" ")[0],v:r.marks}));};
   // ── সামগ্রিক (সব বিষয় মিলিয়ে) ট্রেন্ড — প্রতিটি পরীক্ষায় সব বিষয়ের গড় % বের করে সময়ানুক্রমে সাজানো হয় ──
   const studentOverallGrowth=(name)=>{
     const sr=allRes.filter(r=>r.name===name&&!r.absent&&r.marks!=null);
     const examMap={};
     sr.forEach(r=>{
       const key=r.examType||"অজানা";
-      if(!examMap[key])examMap[key]={total:0,count:0,order:r.examOrder||1};
+      if(!examMap[key])examMap[key]={total:0,count:0,order:r.examOrder||99};
       examMap[key].total+=Math.round(r.marks/(r.fullMarks||100)*100);
       examMap[key].count++;
     });
@@ -6316,7 +6259,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
       <Card><table><thead><tr><th>বিষয়</th><th>গড়</th><th>পাস</th><th>ফেল%</th><th>কঠিনতা</th></tr></thead><tbody>
         {(()=>{
           const subStats=SUBJECTS.map(sub=>{
-            const sr=filtered.filter(r=>r.subject===sub);
+            const sr=filtered.filter(r=>r.subject===sub&&!r.absent&&r.marks!=null); // FIX: absent বাদ, নাহলে ০% হিসেবে ধরা হয়ে ভুয়া ফেল/গড় দেখাতো
             if(!sr.length)return null;
             const tP=r=>Math.round(r.marks/(r.fullMarks||100)*100);
             const savg=Math.round(sr.reduce((a,b)=>a+tP(b),0)/sr.length);
@@ -6343,7 +6286,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
       {/* দুর্বলতা সতর্কতা */}
       {(()=>{
         const weakSubjects=SUBJECTS.map(sub=>{
-          const sr=filtered.filter(r=>r.subject===sub);
+          const sr=filtered.filter(r=>r.subject===sub&&!r.absent&&r.marks!=null); // FIX: absent বাদ
           if(sr.length<3)return null;
           const tP=r=>Math.round(r.marks/(r.fullMarks||100)*100);
           const failPct=Math.round(sr.filter(r=>tP(r)<(r.passMarks||33)).length/sr.length*100);
@@ -6670,8 +6613,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
             const smax=Math.max(...sr.map(r=>r.marks));
             const smin=Math.min(...sr.map(r=>r.marks));
             const[,gc]=getGrade(savg,sr[0]?.fullMarks||100,sr[0]?.passMarks||33);
-            const examOrder=["Chapter Final","First Term","Fortnightly Exam","Second Term","Half-Yearly Exam","Third Term","Annual Exam"];
-            const trendPts=[...new Map(sr.sort((a,b)=>(a.examOrder||1)-(b.examOrder||1)).map(r=>[r.examType,r])).values()].map(r=>({label:r.examType.split(" ")[0],v:Math.round(r.marks/(r.fullMarks||100)*100)}));
+            const trendPts=[...new Map(sr.sort((a,b)=>(a.examOrder||99)-(b.examOrder||99)).map(r=>[r.examType,r])).values()].map(r=>({label:r.examType.split(" ")[0],v:Math.round(r.marks/(r.fullMarks||100)*100)}));
             const avgPctVal=avgPct;
             const difficulty=passP>=80?"সহজ":passP>=60?"মাঝারি":passP>=40?"কঠিন":"অত্যন্ত কঠিন";
             const dc=passP>=80?C.gr:passP>=60?C.te:passP>=40?C.am:C.re;
@@ -6781,9 +6723,11 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
     </div>)}
     {tab==="trend"&&(<div>
       {(()=>{
-        // পরীক্ষার ক্রম অনুযায়ী ট্রেন্ড
-        const examOrder=["Chapter Final","First Term","Fortnightly Exam","Second Term","Half-Yearly Exam","Third Term","Annual Exam"];
-        const trendData=examOrder.map(ex=>{
+        // পরীক্ষার ক্রম অনুযায়ী ট্রেন্ড — ডেটাতে যেসব পরীক্ষার ধরন সত্যিই আছে সেগুলো থেকেই তালিকা তৈরি,
+        // নতুন কোনো পরীক্ষার ধরন যোগ হলে কোড পরিবর্তন ছাড়াই এখানে দেখা যাবে
+        const examTypesPresent=[...new Set(allRes.map(r=>r.examType).filter(Boolean))]
+          .sort((a,b)=>getExamOrder(a)-getExamOrder(b));
+        const trendData=examTypesPresent.map(ex=>{
           const er=allRes.filter(r=>r.examType===ex);
           if(!er.length)return null;
           const avg=Math.round(er.reduce((a,b)=>a+b.marks,0)/er.length);
@@ -6917,7 +6861,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
         {fSub==="সব"?SUBJECTS.map(sub=>{const pts=studentGrowth(selStudent,sub);if(pts.length<1)return null;return(<div key={sub} style={{marginBottom:16}}><div style={{fontSize:12,fontWeight:700,color:C.te,marginBottom:4}}>{sub}</div><LineChart points={pts} color={C.pu}/></div>);}):<LineChart points={studentGrowth(selStudent,fSub)} color={C.pu}/>}
       </Card>):(<Card><div style={{textAlign:"center",color:C.mu,padding:24,fontSize:13}}>উপরে একজন ছাত্র বেছে নিন</div></Card>)}
       <Card><H3>🏆 সেরা উন্নতি</H3>{(()=>{
-        const improvers=allStudents.map(name=>{const sr=[...allRes.filter(r=>r.name===name)].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));if(sr.length<2)return null;const imp=sr[sr.length-1].marks-sr[0].marks;return{name,first:sr[0].marks,last:sr[sr.length-1].marks,imp};}).filter(Boolean).sort((a,b)=>b.imp-a.imp).slice(0,8);
+        const improvers=allStudents.map(name=>{const sr=[...allRes.filter(r=>r.name===name&&!r.absent&&r.marks!=null)].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));if(sr.length<2)return null;const imp=sr[sr.length-1].marks-sr[0].marks;return{name,first:sr[0].marks,last:sr[sr.length-1].marks,imp};}).filter(Boolean).sort((a,b)=>b.imp-a.imp).slice(0,8);
         if(improvers.length===0)return<div style={{textAlign:"center",color:C.mu,fontSize:12,padding:12}}>পর্যাপ্ত ডেটা নেই</div>;
         return(<table><thead><tr><th>#</th><th>নাম</th><th>প্রথম</th><th>শেষ</th><th>উন্নতি</th></tr></thead><tbody>{improvers.map(({name,first,last,imp},i)=>(<tr key={i}><td style={{color:C.mu,fontSize:11}}>{i+1}</td><td style={{fontWeight:500,fontSize:12}}>{name}</td><td style={{color:C.co,fontWeight:600}}>{first}</td><td style={{color:C.gr,fontWeight:600}}>{last}</td><td>{badge(imp>0?C.gr:C.re,`${imp>0?"+":""}${imp}`)}</td></tr>))}</tbody></table>);
       })()}</Card>
@@ -6928,7 +6872,7 @@ function Results({results,setResults,currentUser="",isAdmin=false,STUDENTS,stude
         <div style={{fontSize:11,color:C.mu,marginBottom:10}}>প্রতিটি ছাত্রের সর্বশেষ দুটি পরীক্ষার নম্বর তুলনা করে উন্নতি বা অবনতি দেখানো হচ্ছে{fSub!=="সব"?` (বিষয়: ${fSub})`:""}</div>
         {(()=>{
           const recentChange=allStudents.map(name=>{
-            const sr=[...allRes.filter(r=>r.name===name&&!r.absent&&(fSub==="সব"||r.subject===fSub))].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+            const sr=[...allRes.filter(r=>r.name===name&&!r.absent&&(fSub==="সব"||r.subject===fSub))].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
             if(sr.length<2)return null;
             const prev=sr[sr.length-2],last=sr[sr.length-1];
             return{name,prevExam:prev.examType,prevMarks:prev.marks,lastExam:last.examType,lastMarks:last.marks,diff:last.marks-prev.marks};
@@ -7274,8 +7218,6 @@ const ADMIN_TEACHERS=["MD ABU SAYED","Sabbir Ahmad","Ehsanul Mahbub Rubel"];
 const ATT_REVIEW_EXCLUDED=["Sabbir Ahmad","Ehsanul Mahbub Rubel"];
 const adminTitle=(n)=>n==="MD ABU SAYED"?"👑 একাডেমিক ইনচার্জ":n==="Sabbir Ahmad"?"🎩 হেড স্যার":n==="Ehsanul Mahbub Rubel"?"🏛️ পরিচালক":null;
 const REP_TEACHER="LUTFOR RAHMAN"; // শিক্ষক প্রতিনিধি — অন্য শিক্ষকের পক্ষে সব ইনপুট দিতে পারবেন
-const LS_AUTH_KEY="hais_auth_v2";
-const LS_PASS_KEY="hais_creds_v1";
 const MAX_ATTEMPTS=5;         // সর্বোচ্চ ব্যর্থ চেষ্টা
 const LOCKOUT_MS=10*60*1000;  // ১০ মিনিট লকআউট
 const SESSION_TTL_MS=8*60*60*1000; // ৮ ঘণ্টা session মেয়াদ
@@ -8049,308 +7991,6 @@ function WeeklyLPViewModal({plan,onClose,isAdmin=false,onApprove=null}){
   );
 }
 
-function LPSubmitForm({currentUser,onSubmit,onCancel,initial=null,teacherSubjects={}}){
-  const today=new Date().toLocaleDateString("bn-BD");
-  const isAdmin=(currentUser==="ADMIN");
-  const isRep=(currentUser===REP_TEACHER);
-  const canSelectTeacher=isAdmin||isRep;
-  const [teacher,setTeacher]=useState(initial?.teacher||(canSelectTeacher?TEACHERS[0]:currentUser)||TEACHERS[0]);
-  const [cls,setCls]=useState(initial?.cls||"VI");
-  const selTeacher=canSelectTeacher?teacher:currentUser;
-  const clsSubjects=SUBJECTS_BY_CLASS[cls]||SUBJECTS;
-  const allowedSubjects=useMemo(()=>{
-    const mapped=resolveTeacherSubjects(teacherSubjects,selTeacher);
-    if(!mapped||!mapped.length)return clsSubjects;
-    if(typeof mapped[0]==="object"){
-      const forCls=mapped.filter(x=>x.cls===cls).map(x=>x.sub);
-      return forCls.length?clsSubjects.filter(s=>forCls.includes(s)):clsSubjects;
-    }
-    return clsSubjects.filter(s=>mapped.includes(s));
-  },[clsSubjects,teacherSubjects,selTeacher,cls]);
-  const [sub,setSub]=useState(initial?.subject||allowedSubjects[0]||(SUBJECTS_BY_CLASS["VI"]||SUBJECTS)[0]);
-
-  useEffect(()=>{
-    if(allowedSubjects.length&&!allowedSubjects.includes(sub))setSub(allowedSubjects[0]);
-  },[allowedSubjects]);
-
-  const handleClsChange=(c)=>{
-    setCls(c);
-    setSub((SUBJECTS_BY_CLASS[c]||SUBJECTS)[0]);
-  };
-  const [week,setWeek]=useState(initial?.week||"");
-  const [topic,setTopic]=useState(initial?.topic||"");
-  const [objectives,setObjectives]=useState(initial?.objectives||"");
-  const [methodology,setMethodology]=useState(initial?.methodology||"");
-  const [materials,setMaterials]=useState(initial?.materials||"");
-  const [activities,setActivities]=useState(initial?.activities||"");
-  const [assessment,setAssessment]=useState(initial?.assessment||"");
-  const [homework,setHomework]=useState(initial?.homework||"");
-  const [reflection,setReflection]=useState(initial?.reflection||"");
-  const [err,setErr]=useState("");
-
-  const validate=()=>{
-    if(!topic.trim())return"পাঠের শিরোনাম আবশ্যক";
-    if(!week.trim())return"সপ্তাহ/তারিখ আবশ্যক";
-    if(!objectives.trim())return"শিক্ষার উদ্দেশ্য আবশ্যক";
-    if(!methodology.trim())return"শিক্ষণ পদ্ধতি আবশ্যক";
-    if(!activities.trim())return"পাঠ কার্যক্রম আবশ্যক";
-    if(!assessment.trim())return"মূল্যায়ন পদ্ধতি আবশ্যক";
-    return null;
-  };
-
-  const submit=()=>{
-    const e=validate();
-    if(e){setErr(e);return;}
-    setErr("");
-    onSubmit({
-      id:initial?.id||Date.now().toString(),
-      teacher:selTeacher,cls,subject:sub,week,topic,
-      objectives,methodology,materials,activities,
-      assessment,homework,reflection,
-      status:LP_STATUS.PENDING,
-      adminNote:"",
-      submittedAt:new Date().toISOString(),
-      reviewedAt:null
-    });
-  };
-
-  const FLabel=({children,req})=><div style={{fontSize:11,color:C.mu,marginBottom:3}}>{children}{req&&<span style={{color:C.re}}> *</span>}</div>;
-  const TA=({val,onChange,placeholder,rows=2})=>(
-    <textarea value={val} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
-      style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13,fontFamily:"sans-serif",resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
-  );
-
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:500,overflowY:"auto",padding:"16px 12px"}}>
-      <div style={{background:"#fff",borderRadius:16,padding:18,maxWidth:560,margin:"0 auto",boxShadow:"0 8px 32px rgba(83,68,181,0.18)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:16,color:C.pu}}>📋 লেসন প্ল্যান ফর্ম</div>
-            <div style={{fontSize:11,color:C.mu,marginTop:2}}>Heritage Public School • আন্তর্জাতিক মানের পাঠ পরিকল্পনা</div>
-          </div>
-          <button onClick={onCancel} style={{border:"none",background:C.reL,color:C.re,borderRadius:8,padding:"5px 11px",cursor:"pointer",fontWeight:700,fontSize:14}}>✕</button>
-        </div>
-
-        {/* ── সেকশন ১: পরিচিতি ── */}
-        <div style={{background:C.puL,borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.pu}25`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.pu,marginBottom:10}}>① মূল তথ্য</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            {isAdmin?(
-              <div><FLabel req>শিক্ষক</FLabel>
-                <select value={teacher} onChange={e=>setTeacher(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
-                  {TEACHERS.map(t=><option key={t}>{t}</option>)}
-                </select>
-              </div>
-            ):isRep?(
-              <div><FLabel req>শিক্ষক (প্রতিনিধি হিসেবে)</FLabel>
-                <select value={teacher} onChange={e=>setTeacher(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid #e67e22`,borderRadius:8,fontSize:13}}>
-                  {TEACHERS.map(t=><option key={t}>{t}</option>)}
-                </select>
-                <div style={{fontSize:10,color:"#e67e22",marginTop:3,fontWeight:600}}>⚡ প্রতিনিধি হিসেবে জমা দিচ্ছেন</div>
-              </div>
-            ):(
-              <div><FLabel>শিক্ষক</FLabel>
-                <div style={{padding:"8px 10px",background:"#f5f5f5",borderRadius:8,fontSize:13,fontWeight:600,color:C.pu}}>{currentUser}</div>
-              </div>
-            )}
-            <div><FLabel req>শ্রেণি</FLabel>
-              <select value={cls} onChange={e=>handleClsChange(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
-                {Object.keys(STUDENTS).map(c=><option key={c} value={c}>শ্রেণি {c}</option>)}
-              </select>
-            </div>
-            <div><FLabel req>বিষয়{resolveTeacherSubjects(teacherSubjects,selTeacher)?.length?" (নির্ধারিত)":""}</FLabel>
-              <select value={sub} onChange={e=>setSub(e.target.value)} style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
-                {allowedSubjects.map(s=><option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div><FLabel req>সপ্তাহ / তারিখ</FLabel>
-              <input type="text" placeholder="যেমন: সপ্তাহ-১৫, ১৬ জুন" value={week} onChange={e=>setWeek(e.target.value)}
-                style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}/>
-            </div>
-          </div>
-          <div><FLabel req>পাঠের শিরোনাম / টপিক</FLabel>
-            <input type="text" placeholder="পাঠের মূল বিষয়বস্তু লিখুন..." value={topic} onChange={e=>setTopic(e.target.value)}
-              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}/>
-          </div>
-        </div>
-
-        {/* ── সেকশন ২: শিক্ষার উদ্দেশ্য ── */}
-        <div style={{background:"#f0fff4",borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.gr}25`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.gr,marginBottom:10}}>② শিক্ষার উদ্দেশ্য (Learning Objectives)</div>
-          <FLabel req>পাঠ শেষে শিক্ষার্থীরা কী জানবে / পারবে?</FLabel>
-          <TA val={objectives} onChange={setObjectives} placeholder="১. ... ২. ... ৩. ... (Bloom's Taxonomy অনুসরণ করুন)" rows={3}/>
-        </div>
-
-        {/* ── সেকশন ৩: পদ্ধতি ── */}
-        <div style={{background:"#fff8e1",borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.am}25`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.am,marginBottom:10}}>③ শিক্ষণ পদ্ধতি ও উপকরণ</div>
-          <div style={{marginBottom:8}}>
-            <FLabel req>শিক্ষণ পদ্ধতি (Teaching Method)</FLabel>
-            <TA val={methodology} onChange={setMethodology} placeholder="যেমন: প্রশ্নোত্তর, গ্রুপ আলোচনা, প্রদর্শনী পদ্ধতি..."/>
-          </div>
-          <div>
-            <FLabel>শিক্ষা উপকরণ (Materials)</FLabel>
-            <TA val={materials} onChange={setMaterials} placeholder="যেমন: বোর্ড, চার্ট, মডেল, ডিজিটাল কন্টেন্ট..."/>
-          </div>
-        </div>
-
-        {/* ── সেকশন ৪: কার্যক্রম ── */}
-        <div style={{background:"#f3eeff",borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.pu}20`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.pu,marginBottom:10}}>④ পাঠ কার্যক্রম (Lesson Activities)</div>
-          <FLabel req>সময়ভিত্তিক কার্যক্রমের বিবরণ</FLabel>
-          <TA val={activities} onChange={setActivities} rows={4}
-            placeholder={`ভূমিকা (৫ মি.): ...\nমূল পাঠ (৩০ মি.): ...\nঅনুশীলন (১০ মি.): ...\nসমাপ্তি (৫ মি.): ...`}/>
-        </div>
-
-        {/* ── সেকশন ৫: মূল্যায়ন ও গৃহকাজ ── */}
-        <div style={{background:"#faf0f0",borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.co}25`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.co,marginBottom:10}}>⑤ মূল্যায়ন ও গৃহকাজ</div>
-          <div style={{marginBottom:8}}>
-            <FLabel req>মূল্যায়ন পদ্ধতি (Assessment)</FLabel>
-            <TA val={assessment} onChange={setAssessment} placeholder="যেমন: মৌখিক প্রশ্ন, কুইজ, পর্যবেক্ষণ, লিখিত উত্তর..."/>
-          </div>
-          <div>
-            <FLabel>গৃহকাজ / অনুশীলন (Homework)</FLabel>
-            <TA val={homework} onChange={setHomework} placeholder="পরবর্তী ক্লাসের আগে শিক্ষার্থীরা কী করবে..."/>
-          </div>
-        </div>
-
-        {/* ── সেকশন ৬: প্রতিফলন ── */}
-        <div style={{background:"#e8f5e9",borderRadius:10,padding:"12px",marginBottom:14,border:`1px solid ${C.gr}20`}}>
-          <div style={{fontWeight:700,fontSize:12,color:C.te,marginBottom:10}}>⑥ পাঠ প্রতিফলন (Self-Reflection)</div>
-          <FLabel>পাঠ দেওয়ার পরের অনুভূতি ও উন্নতির পরিকল্পনা</FLabel>
-          <TA val={reflection} onChange={setReflection} placeholder="কী ভালো হয়েছে? কোথায় উন্নতি দরকার? পরের বার কীভাবে ভালো করব?"/>
-        </div>
-
-        {err&&<div style={{background:C.reL,border:`1px solid ${C.re}40`,borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:13,color:C.re,fontWeight:600}}>⚠ {err}</div>}
-
-        <div style={{display:"flex",gap:10}}>
-          <button onClick={submit} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:C.pu,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>
-            📤 জমা দিন (Submit)
-          </button>
-          <button onClick={onCancel} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${C.bd}`,background:"transparent",cursor:"pointer",color:C.mu,fontSize:13}}>বাতিল</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// লেসন প্ল্যান রিভিউ — একাডেমিক ইনচার্জের জন্য
-function LPReviewModal({plan,onApprove,onReject,onRevision,onClose}){
-  const [note,setNote]=useState(plan.adminNote||"");
-  const [action,setAction]=useState(null);
-
-  const statusColor={pending:C.am,approved:C.gr,rejected:C.re,revision:C.co};
-  const statusLabel={pending:"অপেক্ষমান",approved:"অনুমোদিত",rejected:"প্রত্যাখ্যাত",revision:"সংশোধন প্রয়োজন"};
-
-  const Section=({emoji,title,content,color})=>content?(
-    <div style={{marginBottom:12}}>
-      <div style={{fontSize:11,fontWeight:700,color,marginBottom:4}}>{emoji} {title}</div>
-      <div style={{fontSize:13,color:C.tx,background:"#f9f9fb",borderRadius:7,padding:"8px 10px",whiteSpace:"pre-wrap",lineHeight:1.6}}>{content}</div>
-    </div>
-  ):null;
-
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:600,overflowY:"auto",padding:"16px 12px"}} onClick={onClose}>
-      <div style={{background:"#fff",borderRadius:16,padding:18,maxWidth:580,margin:"0 auto",boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}} onClick={e=>e.stopPropagation()}>
-
-        {/* হেডার */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:15,color:C.pu}}>{plan.topic}</div>
-            <div style={{fontSize:12,color:C.mu,marginTop:2}}>
-              {plan.teacher} • শ্রেণি {plan.cls} • {plan.subject} • {plan.week}
-            </div>
-            <div style={{marginTop:6}}>
-              {badge(statusColor[plan.status]||C.mu, statusLabel[plan.status]||plan.status)}
-            </div>
-          </div>
-          <button onClick={onClose} style={{border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontWeight:700}}>✕</button>
-        </div>
-
-        <div style={{height:1,background:C.bd,marginBottom:14}}/>
-
-        {/* বিষয়বস্তু */}
-        <Section emoji="🎯" title="শিক্ষার উদ্দেশ্য" content={plan.objectives} color={C.gr}/>
-        <Section emoji="📖" title="শিক্ষণ পদ্ধতি" content={plan.methodology} color={C.am}/>
-        <Section emoji="🛠" title="উপকরণ" content={plan.materials} color={C.am}/>
-        <Section emoji="📋" title="পাঠ কার্যক্রম" content={plan.activities} color={C.pu}/>
-        <Section emoji="✅" title="মূল্যায়ন পদ্ধতি" content={plan.assessment} color={C.co}/>
-        <Section emoji="🏠" title="গৃহকাজ" content={plan.homework} color={C.te}/>
-        <Section emoji="💭" title="পাঠ প্রতিফলন" content={plan.reflection} color={C.te}/>
-
-        {/* পূর্ববর্তী মন্তব্য */}
-        {plan.adminNote&&plan.status!==LP_STATUS.PENDING&&(
-          <div style={{background:C.amL,border:`1px solid ${C.am}40`,borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:12,color:C.am}}>
-            <span style={{fontWeight:700}}>📝 পূর্ববর্তী মন্তব্য: </span>{plan.adminNote}
-          </div>
-        )}
-
-        {/* অ্যাডমিন অ্যাকশন প্যানেল */}
-        <div style={{background:C.puL,borderRadius:10,padding:12,border:`1px solid ${C.pu}25`}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.pu,marginBottom:8}}>🔑 একাডেমিক ইনচার্জ মন্তব্য ও সিদ্ধান্ত</div>
-          <textarea value={note} onChange={e=>setNote(e.target.value)} rows={2}
-            placeholder="মন্তব্য লিখুন (অনুমোদন/প্রত্যাখ্যানের কারণ)..."
-            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13,fontFamily:"sans-serif",resize:"vertical",outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-            <button onClick={()=>{if(!action){setAction("approve");onApprove(plan.id,note);}}}
-              style={{padding:"9px 6px",borderRadius:8,border:"none",background:C.gr,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>
-              ✅ অনুমোদন
-            </button>
-            <button onClick={()=>{if(!action){setAction("revision");onRevision(plan.id,note);}}}
-              style={{padding:"9px 6px",borderRadius:8,border:"none",background:C.am,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>
-              🔄 সংশোধন
-            </button>
-            <button onClick={()=>{if(!action){setAction("reject");onReject(plan.id,note);}}}
-              style={{padding:"9px 6px",borderRadius:8,border:"none",background:C.re,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12}}>
-              ✗ প্রত্যাখ্যান
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// লেসন প্ল্যান ভিউ মোডাল — যেকোনো ইউজারের জন্য
-function LPViewModal({plan,onClose}){
-  const statusColor={pending:C.am,approved:C.gr,rejected:C.re,revision:C.co};
-  const statusLabel={pending:"অপেক্ষমান",approved:"অনুমোদিত",rejected:"প্রত্যাখ্যাত",revision:"সংশোধন প্রয়োজন"};
-  const Section=({emoji,title,content,color})=>content?(
-    <div style={{marginBottom:12}}>
-      <div style={{fontSize:11,fontWeight:700,color,marginBottom:4}}>{emoji} {title}</div>
-      <div style={{fontSize:13,color:C.tx,background:"#f9f9fb",borderRadius:7,padding:"8px 10px",whiteSpace:"pre-wrap",lineHeight:1.6}}>{content}</div>
-    </div>
-  ):null;
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:600,overflowY:"auto",padding:"16px 12px"}} onClick={onClose}>
-      <div style={{background:"#fff",borderRadius:16,padding:18,maxWidth:540,margin:"0 auto"}} onClick={e=>e.stopPropagation()}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:15,color:C.pu}}>{plan.topic}</div>
-            <div style={{fontSize:11,color:C.mu,marginTop:2}}>{plan.teacher} • শ্রেণি {plan.cls} • {plan.subject} • {plan.week}</div>
-            <div style={{marginTop:5}}>{badge(statusColor[plan.status]||C.mu,statusLabel[plan.status]||plan.status)}</div>
-          </div>
-          <button onClick={onClose} style={{border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontWeight:700}}>✕</button>
-        </div>
-        <div style={{height:1,background:C.bd,marginBottom:12}}/>
-        <Section emoji="🎯" title="শিক্ষার উদ্দেশ্য" content={plan.objectives} color={C.gr}/>
-        <Section emoji="📖" title="শিক্ষণ পদ্ধতি" content={plan.methodology} color={C.am}/>
-        <Section emoji="🛠" title="উপকরণ" content={plan.materials} color={C.am}/>
-        <Section emoji="📋" title="পাঠ কার্যক্রম" content={plan.activities} color={C.pu}/>
-        <Section emoji="✅" title="মূল্যায়ন" content={plan.assessment} color={C.co}/>
-        <Section emoji="🏠" title="গৃহকাজ" content={plan.homework} color={C.te}/>
-        <Section emoji="💭" title="প্রতিফলন" content={plan.reflection} color={C.te}/>
-        {plan.adminNote&&(
-          <div style={{background:plan.status==="approved"?C.grL:plan.status==="rejected"?C.reL:C.amL,border:`1px solid ${statusColor[plan.status]||C.am}40`,borderRadius:8,padding:"8px 10px",fontSize:12,color:statusColor[plan.status]||C.am}}>
-            <span style={{fontWeight:700}}>📝 একাডেমিক ইনচার্জ: </span>{plan.adminNote}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // মূল LessonPlans কম্পোনেন্ট — Dynamic Weekly সিস্টেম
 function LessonPlans({lessonPlans,setLessonPlans,lpRole,setLpRole,teacherSubjects={},STUDENTS,examSchedule=[],setExamSchedule=()=>{}}){
   STUDENTS=STUDENTS||DEFAULT_STUDENTS;
@@ -8789,13 +8429,13 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
   const studentImprovements=useMemo(()=>{
     if(!selTeacher)return[];
     const map={};
-    detailRes.forEach(r=>{
+    detailRes.filter(r=>!r.absent&&r.marks!=null).forEach(r=>{ // FIX: absent বাদ, নাহলে ভুল উন্নতি/অবনতি দেখাতো
       const key=`${r.name}__${r.subject}`;
       if(!map[key])map[key]=[];
       map[key].push(r);
     });
     return Object.values(map).filter(e=>e.length>=2).map(entries=>{
-      const sorted=[...entries].sort((a,b)=>(a.examOrder||1)-(b.examOrder||1));
+      const sorted=[...entries].sort((a,b)=>(a.examOrder||99)-(b.examOrder||99));
       const first=sorted[0].marks,last=sorted[sorted.length-1].marks,imp=last-first;
       return{name:sorted[0].name,subject:sorted[0].subject,first,last,imp};
     }).sort((a,b)=>b.imp-a.imp);
@@ -8804,10 +8444,10 @@ function KPI({results,lessonPlans,obsData={},deadlines=[],dlSubmissions={},STUDE
   const subjectPerf=useMemo(()=>{
     if(!selTeacher)return[];
     return SUBJECTS.map(sub=>{
-      const sr=detailRes.filter(r=>r.subject===sub);
+      const sr=detailRes.filter(r=>r.subject===sub&&!r.absent&&r.marks!=null); // FIX: absent বাদ, নাহলে fail সংখ্যা ও গড় ভুল দেখাতো
       if(!sr.length)return null;
       const avg=Math.round(sr.reduce((a,b)=>a+b.marks,0)/sr.length);
-      const srP=sr.filter(r=>!r.absent);const pass=srP.filter(r=>r.marks>=(r.passMarks||33)).length;
+      const pass=sr.filter(r=>r.marks>=(r.passMarks||33)).length;
       return{sub,avg,pass,fail:sr.length-pass,count:sr.length};
     }).filter(Boolean);
   },[selTeacher,detailRes]);
@@ -9214,17 +8854,12 @@ function evtSummary(event, dlSubmissions, today){
   return{totalAssignments,doneCount,overdueCount,upcomingCount,pct};
 }
 
-/* KPI penalty for upcoming events — same logic as deadlines but event-aware */
-function calcEventKPI(teacher, deadlines, dlSubmissions){
-  /* deadlines এবং events উভয়ের task মিলিয়ে হিসাব */
-  return calcDeadlinePenalty(teacher,deadlines,dlSubmissions);
-}
-
 /* ── EventTaskSubmissionStatus — KPI এ যা প্রভাব ফেলবে ── */
 /* done = সময়মতো, late_approved = অনুমতি সাপেক্ষে দেরিতে, missed = জমা হয়নি */
 
 function UpcomingEventCard({event, dlSubmissions, setDlSubmissions, isAdmin, currentUser, onEdit, onDelete}){
   const [expanded, setExpanded]=useState(false);
+  const [notifTask, setNotifTask]=useState(null); /* কোন task-এর জন্য নোটিশ প্যানেল খোলা আছে */
   const today=new Date(); today.setHours(0,0,0,0);
   const evtDate=new Date(event.eventDate); evtDate.setHours(0,0,0,0);
   const daysToEvent=Math.round((evtDate-today)/(1000*60*60*24));
@@ -9236,6 +8871,7 @@ function UpcomingEventCard({event, dlSubmissions, setDlSubmissions, isAdmin, cur
 
   const markTask=(taskId,teacher,status)=>{
     setDlSubmissions(prev=>({...prev,[taskId]:{...(prev[taskId]||{}),[teacher]:status}}));
+    fbSaveDlSubmission(taskId,teacher,status); // granular Firebase write — আগে এটা বাদ ছিল, তাই অন্য ডিভাইসে সিঙ্ক হতো না
   };
 
   const statusColor=daysToEvent<0?C.re:daysToEvent===0?C.co:daysToEvent<=3?C.am:C.pu;
@@ -9293,6 +8929,11 @@ function UpcomingEventCard({event, dlSubmissions, setDlSubmissions, isAdmin, cur
                   <span style={{fontSize:11,fontWeight:700,color:diff<0?C.re:diff===0?C.co:diff<=3?C.am:C.pu,background:(diff<0?C.re:diff===0?C.co:diff<=3?C.am:C.pu)+"15",padding:"2px 7px",borderRadius:8}}>
                     {diff<0?`${Math.abs(diff)}দিন আগে`:diff===0?"আজই":`${diff}দিন বাকি`}
                   </span>
+                  {isAdmin&&(
+                    <button onClick={(e)=>{e.stopPropagation();setNotifTask(task);}}
+                      style={{marginLeft:6,border:"none",background:C.puL,color:C.pu,borderRadius:8,padding:"3px 7px",cursor:"pointer",fontSize:10,fontWeight:600}}
+                      title="যারা এখনো জমা দেননি তাদের নোটিশ তৈরি করুন">📢 নোটিশ</button>
+                  )}
                 </div>
                 {task.note&&<div style={{fontSize:11,color:C.am,marginBottom:6}}>📌 {task.note}</div>}
 
@@ -9343,6 +8984,20 @@ function UpcomingEventCard({event, dlSubmissions, setDlSubmissions, isAdmin, cur
             </div>
           )}
         </div>
+      )}
+      {notifTask&&(
+        <NotificationPanel
+          deadline={{
+            id:notifTask.id,
+            title:`${event.title} — ${notifTask.title}`,
+            type:notifTask.type==="lesson_plan"?"lesson_plan":notifTask.type==="marks"?"marks":notifTask.type==="question"?"question":notifTask.type==="script"?"exam_script":"other",
+            dueDate:notifTask.dueDate,
+            note:notifTask.note,
+            teachers:notifTask.teachers
+          }}
+          dlSubmissions={dlSubmissions}
+          onClose={()=>setNotifTask(null)}
+        />
       )}
     </div>
   );
@@ -9700,7 +9355,10 @@ function UpcomingEvents({deadlines, setDeadlines, dlSubmissions, setDlSubmission
                   {task.daysLeft<0?`${Math.abs(task.daysLeft)}দিন আগে`:task.daysLeft===0?"আজই!":task.daysLeft<=3?`${task.daysLeft}দিন বাকি`:`${task.daysLeft}দিন বাকি`}
                 </span>
                 {!done&&(
-                  <button onClick={()=>setDlSubmissions(prev=>({...prev,[task.id]:{...(prev[task.id]||{}),[currentUser]:"done"}}))}
+                  <button onClick={()=>{
+                    setDlSubmissions(prev=>({...prev,[task.id]:{...(prev[task.id]||{}),[currentUser]:"done"}}));
+                    fbSaveDlSubmission(task.id,currentUser,"done"); // granular Firebase write
+                  }}
                     style={{padding:"4px 10px",borderRadius:8,border:"none",background:C.gr,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:11}}>
                     ✓ জমা দিয়েছি
                   </button>
@@ -10404,386 +10062,6 @@ function NotificationPanel({deadline, dlSubmissions, onClose}){
   );
 }
 
-function DeadlineModule({deadlines,setDeadlines,dlSubmissions,setDlSubmissions,currentUser,isAdmin}){
-  const [tab,setTab]=useState(isAdmin?"manage":"my");
-  const [showForm,setShowForm]=useState(false);
-  const [notifDl,setNotifDl]=useState(null);
-  const [filterType,setFilterType]=useState("সব");
-
-  // নতুন deadline ফর্ম state
-  const [form,setForm]=useState({title:"",type:"lesson_plan",dueDate:"",note:"",teachers:[]});
-  const [formErr,setFormErr]=useState("");
-
-  const today=new Date(); today.setHours(0,0,0,0);
-
-  // শিক্ষক যেসব deadline-এ আছেন
-  const myDeadlines=useMemo(()=>{
-    if(isAdmin)return deadlines;
-    return deadlines.filter(dl=>{
-      const t=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;
-      return t.includes(currentUser);
-    });
-  },[deadlines,currentUser,isAdmin]);
-
-  const filtered=filterType==="সব"?myDeadlines:myDeadlines.filter(d=>d.type===filterType);
-  const sorted=[...filtered].sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
-
-  // আমার জন্য pending deadline
-  const myPending=myDeadlines.filter(dl=>{
-    const subs=dlSubmissions[dl.id]||{};
-    const due=new Date(dl.dueDate); due.setHours(0,0,0,0);
-    return !isAdmin&&subs[currentUser]!=="done"&&due>=today;
-  });
-  const myOverdue=myDeadlines.filter(dl=>{
-    const subs=dlSubmissions[dl.id]||{};
-    const due=new Date(dl.dueDate); due.setHours(0,0,0,0);
-    return !isAdmin&&subs[currentUser]!=="done"&&due<today;
-  });
-
-  const submitDeadline=()=>{
-    if(!form.title.trim()){setFormErr("শিরোনাম আবশ্যক");return;}
-    if(!form.dueDate){setFormErr("তারিখ আবশ্যক");return;}
-    setFormErr("");
-    const newDl={
-      id:Date.now().toString(),
-      title:form.title,
-      type:form.type,
-      dueDate:form.dueDate,
-      note:form.note,
-      teachers:form.teachers,
-      createdAt:new Date().toISOString(),
-      createdBy:currentUser
-    };
-    fbSaveDeadline(newDl); // granular Firebase write
-    setDeadlines(prev=>[...prev,newDl]);
-    setForm({title:"",type:"lesson_plan",dueDate:"",note:"",teachers:[]});
-    setShowForm(false);
-  };
-
-  const markDone=(dlId,teacher)=>{
-    setDlSubmissions(prev=>{
-      const updated={...(prev[dlId]||{}),[teacher]:"done"};
-      fbSaveDlSubmission(dlId,teacher,"done"); // granular Firebase write
-      return{...prev,[dlId]:updated};
-    });
-  };
-  const markUndone=(dlId,teacher)=>{
-    setDlSubmissions(prev=>{
-      const copy={...prev,[dlId]:{...(prev[dlId]||{})}};
-      delete copy[dlId][teacher];
-      fbSaveDlSubmission(dlId,teacher,null); // granular Firebase write (null = মুছে দেওয়া)
-      return copy;
-    });
-  };
-  const deleteDl=(id)=>{
-    if(!window.confirm("এই ডেডলাইনটি মুছে ফেলবেন?"))return;
-    fbDeleteDeadline(id); // granular Firebase delete
-    setDeadlines(prev=>prev.filter(d=>d.id!==id));
-    setDlSubmissions(prev=>{const c={...prev};delete c[id];return c;});
-  };
-
-  const toggleTeacher=(t)=>{
-    setForm(prev=>({...prev,teachers:prev.teachers.includes(t)?prev.teachers.filter(x=>x!==t):[...prev.teachers,t]}));
-  };
-
-  // admin stats
-  const overdueCount=deadlines.filter(dl=>{
-    const due=new Date(dl.dueDate); due.setHours(0,0,0,0);
-    const subs=dlSubmissions[dl.id]||{};
-    const targets=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;
-    return due<today&&targets.some(t=>subs[t]!=="done");
-  }).length;
-  const todayCount=deadlines.filter(dl=>{
-    const due=new Date(dl.dueDate); due.setHours(0,0,0,0);
-    return due.getTime()===today.getTime();
-  }).length;
-
-  return(<div>
-    {notifDl&&<NotificationPanel deadline={notifDl} dlSubmissions={dlSubmissions} onClose={()=>setNotifDl(null)}/>}
-
-    <H2>🔔 ডেডলাইন ব্যবস্থাপনা</H2>
-
-    {/* সারসংক্ষেপ */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-      {isAdmin?(
-        <>
-          <Stat label="মোট ডেডলাইন" value={deadlines.length} color={C.pu} sub="সক্রিয়"/>
-          <Stat label="অতিক্রান্ত" value={overdueCount} color={overdueCount>0?C.re:C.gr} sub="সময় পেরিয়ে গেছে"/>
-          <Stat label="আজকের ডেডলাইন" value={todayCount} color={todayCount>0?C.co:C.gr} sub="আজকে শেষ"/>
-          <Stat label="সম্পন্ন" value={deadlines.filter(dl=>{const targets=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;const subs=dlSubmissions[dl.id]||{};return targets.every(t=>subs[t]==="done");}).length} color={C.te} sub="সবাই জমা দিয়েছেন"/>
-        </>
-      ):(
-        <>
-          <Stat label="আমার বাকি" value={myPending.length} color={myPending.length>0?C.am:C.gr} sub="জমা দিতে হবে"/>
-          <Stat label="সময় পেরিয়েছে" value={myOverdue.length} color={myOverdue.length>0?C.re:C.gr} sub="মিস হয়েছে"/>
-        </>
-      )}
-    </div>
-
-    {/* ট্যাব */}
-    <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
-      {isAdmin&&<button onClick={()=>setTab("manage")} style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${tab==="manage"?C.pu:C.bd}`,background:tab==="manage"?C.puL:"transparent",color:tab==="manage"?C.pu:C.mu,cursor:"pointer",fontSize:12,fontWeight:tab==="manage"?700:400}}>📋 ডেডলাইন পরিচালনা</button>}
-      {isAdmin&&<button onClick={()=>setTab("tracker")} style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${tab==="tracker"?C.pu:C.bd}`,background:tab==="tracker"?C.puL:"transparent",color:tab==="tracker"?C.pu:C.mu,cursor:"pointer",fontSize:12,fontWeight:tab==="tracker"?700:400}}>📊 শিক্ষকভিত্তিক ট্র্যাকার</button>}
-      {!isAdmin&&<button onClick={()=>setTab("my")} style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${tab==="my"?C.pu:C.bd}`,background:tab==="my"?C.puL:"transparent",color:tab==="my"?C.pu:C.mu,cursor:"pointer",fontSize:12,fontWeight:tab==="my"?700:400}}>📅 আমার ডেডলাইন</button>}
-    </div>
-
-    {/* ─── ADMIN: ডেডলাইন পরিচালনা ─── */}
-    {tab==="manage"&&isAdmin&&(
-      <div>
-        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-          <button onClick={()=>setShowForm(p=>!p)}
-            style={{padding:"9px 16px",borderRadius:10,border:"none",background:C.pu,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
-            ＋ নতুন ডেডলাইন
-          </button>
-          <select value={filterType} onChange={e=>setFilterType(e.target.value)}
-            style={{padding:"7px 10px",borderRadius:8,border:`1px solid ${C.bd}`,fontSize:12}}>
-            <option value="সব">সব ধরন</option>
-            {DL_TYPES.map(d=><option key={d.id} value={d.id}>{d.emoji} {d.label}</option>)}
-          </select>
-        </div>
-
-        {/* নতুন ডেডলাইন ফর্ম */}
-        {showForm&&(
-          <Card style={{border:`2px solid ${C.pu}40`,background:C.puL}}>
-            <H3 style={{color:C.pu}}>📋 নতুন ডেডলাইন তৈরি করুন</H3>
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:11,color:C.mu,marginBottom:3}}>শিরোনাম *</div>
-              <input type="text" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}
-                placeholder="যেমন: সাপ্তাহিক লেসন প্ল্যান জমা — সপ্তাহ ২৫"
-                style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <div style={{fontSize:11,color:C.mu,marginBottom:3}}>ধরন *</div>
-                <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}
-                  style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}>
-                  {DL_TYPES.map(d=><option key={d.id} value={d.id}>{d.emoji} {d.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:C.mu,marginBottom:3}}>ডেডলাইন তারিখ *</div>
-                <input type="date" value={form.dueDate} onChange={e=>setForm(p=>({...p,dueDate:e.target.value}))}
-                  style={{width:"100%",padding:"8px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13}}/>
-              </div>
-            </div>
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:11,color:C.mu,marginBottom:3}}>বিশেষ নির্দেশনা (ঐচ্ছিক)</div>
-              <textarea value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))} rows={2}
-                placeholder="শিক্ষকদের জন্য বিশেষ নির্দেশ..."
-                style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:8,fontSize:13,fontFamily:"sans-serif",resize:"vertical"}}/>
-            </div>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:11,color:C.mu,marginBottom:5}}>প্রযোজ্য শিক্ষক (খালি রাখলে সবার জন্য)</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                {TEACHERS.map(t=>{
-                  const sel=form.teachers.includes(t);
-                  return(<button key={t} onClick={()=>toggleTeacher(t)}
-                    style={{padding:"4px 9px",borderRadius:12,border:`1px solid ${sel?C.pu:C.bd}`,background:sel?C.puL:"transparent",color:sel?C.pu:C.mu,cursor:"pointer",fontSize:11,fontWeight:sel?700:400}}>
-                    {t}
-                  </button>);
-                })}
-              </div>
-              {form.teachers.length===0&&<div style={{fontSize:11,color:C.mu,marginTop:4}}>✓ সকল শিক্ষকের জন্য প্রযোজ্য</div>}
-            </div>
-            {formErr&&<div style={{color:C.re,fontSize:12,marginBottom:8,fontWeight:600}}>⚠ {formErr}</div>}
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={submitDeadline}
-                style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:C.pu,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>
-                ✓ ডেডলাইন সেট করুন
-              </button>
-              <button onClick={()=>{setShowForm(false);setFormErr("");}}
-                style={{padding:"10px 16px",borderRadius:10,border:`1px solid ${C.bd}`,background:"transparent",cursor:"pointer",fontSize:13}}>
-                বাতিল
-              </button>
-            </div>
-          </Card>
-        )}
-
-        {/* ডেডলাইন তালিকা */}
-        {sorted.length===0?(
-          <Card><div style={{textAlign:"center",color:C.mu,padding:24,fontSize:13}}>কোনো ডেডলাইন নেই। উপরে ＋ বোতামে ক্লিক করুন।</div></Card>
-        ):(
-          sorted.map(dl=>{
-            const info=dlTypeInfo(dl.type);
-            const st=dlStatus(dl,dlSubmissions);
-            const targets=dl.teachers&&dl.teachers.length>0?dl.teachers:TEACHERS;
-            return(
-              <Card key={dl.id} style={{border:`1px solid ${st.color}30`,borderLeft:`4px solid ${st.color}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:13,color:info.color}}>{info.emoji} {dl.title}</div>
-                    <div style={{fontSize:11,color:C.mu,marginTop:2}}>
-                      {info.label} • {new Date(dl.dueDate).toLocaleDateString("bn-BD")}
-                      {dl.teachers&&dl.teachers.length>0?` • ${dl.teachers.length} জন শিক্ষক`:" • সকল শিক্ষক"}
-                    </div>
-                    {dl.note&&<div style={{fontSize:11,color:C.mu,marginTop:3,fontStyle:"italic"}}>📌 {dl.note}</div>}
-                    {/* প্রগ্রেস বার */}
-                    <div style={{marginTop:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
-                        <span style={{color:C.mu}}>অগ্রগতি</span>
-                        <span style={{fontWeight:700,color:st.color}}>{st.submittedCount}/{st.totalTargets}</span>
-                      </div>
-                      <div style={{height:6,background:"#eee",borderRadius:3}}>
-                        <div style={{width:`${st.totalTargets?st.submittedCount/st.totalTargets*100:0}%`,height:"100%",background:st.color,borderRadius:3,transition:"width 0.4s"}}/>
-                      </div>
-                    </div>
-                    {/* প্রতিটি শিক্ষকের অবস্থা */}
-                    <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
-                      {targets.map(t=>{
-                        const subs=dlSubmissions[dl.id]||{};
-                        const done=subs[t]==="done";
-                        return(
-                          <button key={t} onClick={()=>done?markUndone(dl.id,t):markDone(dl.id,t)}
-                            title={`${t} — ${done?"সম্পন্ন (ক্লিক করলে বাতিল হবে)":"বাকি (ক্লিক করলে সম্পন্ন হিসেবে চিহ্নিত হবে)"}`}
-                            style={{padding:"3px 8px",borderRadius:12,border:`1px solid ${done?C.gr:C.re}40`,background:done?C.grL:C.reL,color:done?C.gr:C.re,cursor:"pointer",fontSize:10,fontWeight:600}}>
-                            {done?"✓":"✗"} {t}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
-                    <span style={{fontSize:11,fontWeight:700,color:st.color,background:st.color+"15",padding:"3px 8px",borderRadius:10,border:`1px solid ${st.color}30`,whiteSpace:"nowrap"}}>{st.label}</span>
-                    <button onClick={()=>setNotifDl(dl)}
-                      style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.pu}40`,background:C.puL,color:C.pu,cursor:"pointer",fontSize:11,fontWeight:600}}>
-                      🔔 নোটিশ
-                    </button>
-                    <button onClick={()=>deleteDl(dl.id)}
-                      style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.re}30`,background:C.reL,color:C.re,cursor:"pointer",fontSize:11}}>
-                      🗑 মুছুন
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            );
-          })
-        )}
-      </div>
-    )}
-
-    {/* ─── ADMIN: শিক্ষকভিত্তিক ট্র্যাকার ─── */}
-    {tab==="tracker"&&isAdmin&&(
-      <div>
-        <Card>
-          <H3>📊 প্রতিটি শিক্ষকের ডেডলাইন পালনের হার</H3>
-          <div style={{fontSize:11,color:C.mu,marginBottom:10}}>অতিক্রান্ত ডেডলাইনের উপর ভিত্তি করে হিসাব। KPI-তে এই স্কোর যুক্ত হয়।</div>
-          {TEACHERS.map(t=>{
-            const {missed,total,rate}=calcDeadlinePenalty(t,deadlines,dlSubmissions);
-            if(total===0)return(
-              <div key={t} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.bd}`}}>
-                <div style={{flex:1,fontSize:12,fontWeight:600}}>{t}</div>
-                <div style={{fontSize:11,color:C.mu}}>ডেটা নেই</div>
-              </div>
-            );
-            const color=rate>=90?C.gr:rate>=70?C.am:C.re;
-            return(
-              <div key={t} style={{padding:"8px 0",borderBottom:`1px solid ${C.bd}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <div style={{fontWeight:600,fontSize:12}}>{t}</div>
-                  <div style={{fontSize:12,fontWeight:700,color}}>{rate}%</div>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.mu,marginBottom:4}}>
-                  <span>মোট: {total}টি ডেডলাইন</span>
-                  <span style={{color:missed>0?C.re:C.gr}}>মিস: {missed}টি</span>
-                </div>
-                <div style={{height:5,background:"#eee",borderRadius:3}}>
-                  <div style={{width:`${rate}%`,height:"100%",background:color,borderRadius:3}}/>
-                </div>
-              </div>
-            );
-          })}
-        </Card>
-      </div>
-    )}
-
-    {/* ─── TEACHER: আমার ডেডলাইন ─── */}
-    {tab==="my"&&!isAdmin&&(
-      <div>
-        {myOverdue.length>0&&(
-          <Card style={{border:`2px solid ${C.re}50`,background:C.reL}}>
-            <div style={{fontWeight:700,color:C.re,marginBottom:8}}>⚠️ সময় পেরিয়ে যাওয়া ডেডলাইন ({myOverdue.length}টি)</div>
-            {myOverdue.map(dl=>{
-              const info=dlTypeInfo(dl.type);
-              const subs=dlSubmissions[dl.id]||{};
-              const done=subs[currentUser]==="done";
-              const due=new Date(dl.dueDate);
-              const diff=Math.round((today-due)/(1000*60*60*24));
-              return(
-                <div key={dl.id} style={{background:"#fff",borderRadius:8,padding:"10px 12px",marginBottom:8,border:`1px solid ${C.re}30`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                    <div>
-                      <div style={{fontWeight:700,fontSize:13}}>{info.emoji} {dl.title}</div>
-                      <div style={{fontSize:11,color:C.re,marginTop:2,fontWeight:600}}>{diff} দিন আগে শেষ হয়েছিল — {done?"আপনি জমা দিয়েছেন ✅":"আপনি জমা দেননি ❌"}</div>
-                      {dl.note&&<div style={{fontSize:11,color:C.mu,marginTop:3}}>📌 {dl.note}</div>}
-                    </div>
-                    {!done&&<button onClick={()=>markDone(dl.id,currentUser)}
-                      style={{padding:"6px 12px",borderRadius:8,border:"none",background:C.gr,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>
-                      ✓ জমা দিয়েছি
-                    </button>}
-                  </div>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-
-        {myPending.length===0&&myOverdue.length===0&&(
-          <Card><div style={{textAlign:"center",color:C.gr,padding:24,fontSize:13}}>✅ আপনার কোনো বকেয়া ডেডলাইন নেই!</div></Card>
-        )}
-
-        {myPending.map(dl=>{
-          const info=dlTypeInfo(dl.type);
-          const subs=dlSubmissions[dl.id]||{};
-          const done=subs[currentUser]==="done";
-          const due=new Date(dl.dueDate); due.setHours(0,0,0,0);
-          const diff=Math.round((due-today)/(1000*60*60*24));
-          const urgColor=diff===0?C.re:diff<=3?C.co:C.am;
-          return(
-            <Card key={dl.id} style={{border:`1px solid ${urgColor}40`,borderLeft:`4px solid ${urgColor}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:13,color:info.color}}>{info.emoji} {dl.title}</div>
-                  <div style={{fontSize:11,color:C.mu,marginTop:2}}>{info.label} • {new Date(dl.dueDate).toLocaleDateString("bn-BD")}</div>
-                  {dl.note&&<div style={{fontSize:11,color:C.mu,marginTop:3,fontStyle:"italic"}}>📌 {dl.note}</div>}
-                  <div style={{fontSize:12,fontWeight:700,color:urgColor,marginTop:6}}>
-                    {diff===0?"🔴 আজই শেষ দিন!":diff<=3?`🟡 মাত্র ${diff} দিন বাকি`:`📅 ${diff} দিন বাকি`}
-                  </div>
-                </div>
-                {done?(
-                  <div>
-                    <div style={{color:C.gr,fontWeight:700,fontSize:13}}>✅ জমা দিয়েছেন</div>
-                    <button onClick={()=>markUndone(dl.id,currentUser)} style={{marginTop:4,padding:"4px 8px",borderRadius:8,border:`1px solid ${C.re}30`,background:C.reL,color:C.re,cursor:"pointer",fontSize:10}}>পূর্বাবস্থায় ফেরান</button>
-                  </div>
-                ):(
-                  <button onClick={()=>markDone(dl.id,currentUser)}
-                    style={{padding:"8px 14px",borderRadius:10,border:"none",background:C.gr,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,flexShrink:0}}>
-                    ✓ জমা দিয়েছি
-                  </button>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-
-        {/* সম্পন্ন ডেডলাইন */}
-        {myDeadlines.filter(dl=>{const subs=dlSubmissions[dl.id]||{};return subs[currentUser]==="done";}).length>0&&(
-          <details style={{marginTop:8}}>
-            <summary style={{cursor:"pointer",fontSize:12,color:C.mu,padding:"8px 0"}}>✅ সম্পন্ন ডেডলাইন দেখুন</summary>
-            {myDeadlines.filter(dl=>{const subs=dlSubmissions[dl.id]||{};return subs[currentUser]==="done";}).map(dl=>{
-              const info=dlTypeInfo(dl.type);
-              return(
-                <Card key={dl.id} style={{opacity:0.7,border:`1px solid ${C.gr}30`}}>
-                  <div style={{fontWeight:600,fontSize:12,color:C.gr}}>✅ {info.emoji} {dl.title}</div>
-                  <div style={{fontSize:11,color:C.mu}}>{new Date(dl.dueDate).toLocaleDateString("bn-BD")}</div>
-                </Card>
-              );
-            })}
-          </details>
-        )}
-      </div>
-    )}
-  </div>);
-}
 
 /* ══ ARCHITECTURE ══ */
 function Architecture(){
@@ -11180,7 +10458,6 @@ const PAGES=[
    বর্তমান দশম শ্রেণির (X) শিক্ষার্থীরাই ২০২৭ সালের এসএসসি পরীক্ষার্থী
    ══════════════════════════════════════════════════════════════════════ */
 const SSC_CLASS="X";
-const SSC_DEPARTMENTS=["বিজ্ঞান","মানবিক","ব্যবসায় শিক্ষা"]; // Class X বিভাগ — School Rank(SPI)-এর জন্য আলাদা cohort
 
 const STUDY_TIPS={
   "গণিত":"প্রতিদিন অন্তত ১৫-২০টি অংক চর্চা করুন এবং ভুল হওয়া অংকগুলো আলাদা খাতায় টুকে রেখে বারবার পর্যালোচনা করুন।",
