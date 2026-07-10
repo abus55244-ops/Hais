@@ -1,10 +1,13 @@
 /* ============================================================
    HAIS Service Worker — Heritage Academic Intelligence System
-   Auto-Update Strategy: Network-first, Cache fallback
+   Update Strategy: Network-first, Cache fallback,
+   ★ প্রম্পট-ভিত্তিক আপডেট (v8.0): নতুন ভার্সন আর নিজে নিজে চালু হয় না —
+   পেজ থেকে ব্যবহারকারী "আপডেট করুন" চাপলে SKIP_WAITING বার্তা আসে,
+   তখনই activate হয়। এতে টাইপ করার মাঝপথে জোরপূর্বক reload বন্ধ হলো।
    প্রতিবার নতুন version deploy হলে CACHE_VERSION বাড়িয়ে দিন
    ============================================================ */
 
-const CACHE_VERSION = 'hais-v7.1';
+const CACHE_VERSION = 'hais-v8.0';
 const CACHE_NAME = `hais-cache-${CACHE_VERSION}`;
 
 const CORE_FILES = [
@@ -22,17 +25,23 @@ const CORE_FILES = [
 ];
 
 // ── Install: core ফাইলগুলো cache করো ──
+// ★ আগে এখানে self.skipWaiting() ছিল — নতুন SW জোর করে সাথে সাথে দখল নিত।
+//   এখন সে "waiting" অবস্থায় অপেক্ষা করে; ব্যবহারকারী অনুমতি দিলে তবেই চালু হয়।
 self.addEventListener('install', event => {
   console.log('[SW] Installing HAIS Service Worker...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       console.log('[SW] Caching core files');
       return cache.addAll(CORE_FILES);
-    }).then(() => {
-      // নতুন SW সাথে সাথে activate হবে, পুরনো কে অপেক্ষা করাবে না
-      return self.skipWaiting();
     })
   );
+});
+
+// ── পেজ থেকে "আপডেট করুন" বার্তা এলে তবেই দখল নাও ──
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // ── Activate: পুরনো cache মুছে দাও ──
@@ -51,13 +60,6 @@ self.addEventListener('activate', event => {
     }).then(() => {
       // সমস্ত client কে এখনই নতুন SW দিয়ে নিয়ন্ত্রণ করো
       return self.clients.claim();
-    }).then(() => {
-      // সব খোলা tab কে reload করার নির্দেশ দাও
-      return self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client => {
-          client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
-        });
-      });
     })
   );
 });
