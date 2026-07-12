@@ -7,7 +7,7 @@
    প্রতিবার নতুন version deploy হলে CACHE_VERSION বাড়িয়ে দিন
    ============================================================ */
 
-const CACHE_VERSION = 'hais-v8.6';
+const CACHE_VERSION = 'hais-v8.9.1';
 const CACHE_NAME = `hais-cache-${CACHE_VERSION}`;
 
 const CORE_FILES = [
